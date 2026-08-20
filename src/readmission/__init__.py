@@ -1,2 +1,1 @@
-def main() -> None:
-    print("Hello from 30-day-diabetes-readmission-predictor!")
+__version__ = "0.1.0"

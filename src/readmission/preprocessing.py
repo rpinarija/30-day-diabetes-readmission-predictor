@@ -174,14 +174,14 @@ def group_medical_specialty(specialty: object) -> str:
     if text in ("", "?", "nan"):
         return "missing"
     keep = {
-        "InternalMedicine": "internal_medicine",
-        "Emergency/Trauma": "emergency_trauma",
-        "Family/GeneralPractice": "family_general_practice",
-        "Cardiology": "cardiology",
+        "internalmedicine": "internal_medicine",
+        "emergency/trauma": "emergency_trauma",
+        "family/generalpractice": "family_general_practice",
+        "cardiology": "cardiology",
     }
     if text in keep:
         return keep[text]
-    if text.startswith("surgery") or text in ("surgery-general", "SurgicalSpecialty"):
+    if text.startswith("surgery") or text in ("surgery-general", "surgicalspecialty"):
         return "surgery"
     return "other"
 
