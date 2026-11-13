@@ -306,8 +306,8 @@ def format_summary(metrics: dict) -> str:
     ]
     for row in metrics["lift_table"]:
         lines.append(
-            f"{row['top_fraction']:>8.0%}{row['n_flagged']:>10}"
-            f"{row['precision']:>12.3f}{row['recall']:>10.1f}{row['lift']:>8.2f}x"
+            f"{row['top_fraction']:>8.0%}{row['n_flagged']:>12,}"
+            f"{row['precision']:>12.3f}{row['recall']:>12.1%}{row['lift']:>7.2f}x"
         )
     lines.append("")
     lines.append(f"{'risk_tier':>10}{'patients':>12}{'share':>10}{'observed rate':>16}")
