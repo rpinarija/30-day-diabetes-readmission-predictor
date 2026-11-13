@@ -20,9 +20,15 @@ CALIBRATION_SIZE = 0.2
 
 RISK_TIER_ORDER = ("low", "moderate", "high")
 
+# Calibrated-probability cutoffs, sized to follow-up capacity rather than picked as round
+# numbers. On the calibration split: high (>= 0.16) flags ~6 per 100 discharges with ~23%
+# readmitted, an intensive-follow-up list; high + moderate (>= 0.12) flags ~24 per 100 and
+# catches ~43% of readmissions. Both cutoffs sit where decision-curve net benefit beats
+# following up with everyone or no one. Isotonic calibration outputs a step function, so
+# cutoffs sit on step edges; re-check flagged volumes after every retrain.
 RISK_TIER_THRESHOLDS = {
-    "moderate": 0.10,
-    "high": 0.20,
+    "moderate": 0.12,
+    "high": 0.16,
 }
 
 

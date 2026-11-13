@@ -165,10 +165,10 @@ class TestAssignRiskTier:
         ("probability", "expected"),
         [
             (0.0, "low"),
-            (0.099, "low"),
-            (0.10, "moderate"),  # threshold is inclusive
-            (0.199, "moderate"),
-            (0.20, "high"),  # threshold is inclusive
+            (0.119, "low"),
+            (0.12, "moderate"),  # threshold is inclusive
+            (0.159, "moderate"),
+            (0.16, "high"),  # threshold is inclusive
             (1.0, "high"),
         ],
     )
