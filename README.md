@@ -90,10 +90,10 @@ The ~9% positive rate rules out accuracy as meaningful (predicting "no readmissi
 
 - **Ranking:** the top 10% of patients by predicted risk have a 20.9% readmission rate (2.3x the base rate), and the top 5% have 23.6% (2.6x).
 - **Calibration:** isotonic calibration cut expected calibration error from 0.372 to 0.006 with almost no change in ROC-AUC, so the predicted probabilities can be read as real risks.
-- **Risk tiers:** observed readmission rates are 6.2% (low, 62% of patients), 12.5% (moderate, 34%), and 25.5% (high, 3%).
+- **Risk tiers:** cutoffs are sized to follow-up capacity (high ≥ 0.16, moderate ≥ 0.12; reasoning in `src/readmission/config.py`). The high tier flags ~6 per 100 discharges with a 23.0% observed readmission rate; high + moderate flag ~24 per 100 and catch 43% of readmissions. Low-tier patients (76%) readmit at 6.7%. A decision curve confirms the model beats following up with everyone or no one at both cutoffs.
 - **Honest read:** an ROC-AUC of 0.65 is modest. This is consistent with published work on this dataset, which has no post-discharge, social, or vitals data. The model is useful for prioritizing a follow-up list, not as a standalone decision rule.
 
-Full metrics are written to `models/metrics.json`, and the reliability diagram to `models/reliability.png`.
+Full metrics are written to `models/metrics.json`, with plots in `models/`: the reliability diagram (`reliability.png`), feature importance (`feature_importance.png`), and the decision curve (`decision_curve.png`).
 
 ## Reproducibility
 

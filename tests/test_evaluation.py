@@ -11,6 +11,8 @@ from readmission.config import (
 from readmission.evaluation import (
     MIN_SUBGROUP_POSITIVES,
     age_band,
+    capacity_table,
+    decision_curve,
     evaluate,
     expected_calibration_error,
     incumbent_baseline,
@@ -165,10 +167,10 @@ class TestAssignRiskTier:
         ("probability", "expected"),
         [
             (0.0, "low"),
-            (0.099, "low"),
-            (0.10, "moderate"),  # threshold is inclusive
-            (0.199, "moderate"),
-            (0.20, "high"),  # threshold is inclusive
+            (0.119, "low"),
+            (0.12, "moderate"),  # threshold is inclusive
+            (0.159, "moderate"),
+            (0.16, "high"),  # threshold is inclusive
             (1.0, "high"),
         ],
     )
@@ -221,6 +223,54 @@ class TestRiskTierSummary:
 # ---------------------------------------------------------------------------
 # Subgroups
 # ---------------------------------------------------------------------------
+
+
+class TestCapacityTable:
+    def test_volumes_and_rates_for_a_known_split(self, imbalanced_labels):
+        """Score the 100 readmissions plus 100 non-readmissions at 0.30, the rest at
+        0.05. A 0.20 cutoff flags 200 of 1,000 patients, half of them readmitted."""
+        proba = np.concatenate([np.full(200, 0.30), np.full(800, 0.05)])
+        row = capacity_table(imbalanced_labels, proba, cutoffs=(0.20,))[0]
+        assert row["flagged_per_100"] == pytest.approx(20.0)
+        assert row["precision"] == pytest.approx(0.5)
+        assert row["recall"] == pytest.approx(1.0)
+        assert row["readmissions_flagged_per_100"] == pytest.approx(10.0)
+        assert row["number_needed_to_flag"] == pytest.approx(2.0)
+
+    def test_cutoff_above_every_score_flags_no_one(self, imbalanced_labels):
+        row = capacity_table(imbalanced_labels, np.full(1000, 0.05), cutoffs=(0.5,))[0]
+        assert row["flagged_per_100"] == 0
+        assert row["precision"] is None
+        assert row["number_needed_to_flag"] is None
+
+    def test_raising_the_cutoff_never_flags_more_patients(self, imbalanced_labels):
+        rng = np.random.default_rng(8)
+        rows = capacity_table(imbalanced_labels, rng.random(1000), (0.1, 0.3, 0.5, 0.9))
+        volumes = [r["flagged_per_100"] for r in rows]
+        assert volumes == sorted(volumes, reverse=True)
+
+
+class TestDecisionCurve:
+    def test_hand_computed_net_benefit(self, imbalanced_labels):
+        """Same split as the capacity test: at t = 0.20, 100 true and 100 false
+        positives out of 1,000 -> 0.10 - 0.10 * (0.20 / 0.80) = 0.075."""
+        proba = np.concatenate([np.full(200, 0.30), np.full(800, 0.05)])
+        row = decision_curve(imbalanced_labels, proba, thresholds=(0.20,))[0]
+        assert row["net_benefit_model"] == pytest.approx(0.075)
+
+    def test_treat_all_equals_prevalence_at_zero_threshold(self, imbalanced_labels):
+        row = decision_curve(imbalanced_labels, np.zeros(1000), thresholds=(0.0,))[0]
+        assert row["net_benefit_treat_all"] == pytest.approx(0.10)
+
+    def test_perfect_model_captures_all_benefit(self, imbalanced_labels):
+        """Flagging exactly the readmitted patients has no false-alarm cost."""
+        perfect = imbalanced_labels.astype(float)
+        rows = decision_curve(imbalanced_labels, perfect, thresholds=(0.1, 0.3, 0.5))
+        assert all(r["net_benefit_model"] == pytest.approx(0.10) for r in rows)
+
+    def test_flagging_no_one_has_zero_net_benefit(self, imbalanced_labels):
+        row = decision_curve(imbalanced_labels, np.zeros(1000), thresholds=(0.5,))[0]
+        assert row["net_benefit_model"] == 0
 
 
 class TestAgeBand:
@@ -285,14 +335,14 @@ class TestSubgroupMetrics:
 
     def test_detects_unequal_recall_at_shared_cutoff(self):
         """Group A's readmissions score high and group B's score low, so a single
-        top-10% cutoff catches every A readmission and no B readmission."""
+        cutoff catches every A readmission and no B readmission."""
         y_group = np.array([1] * 50 + [0] * 450)
         proba_a = np.concatenate([np.full(50, 0.9), np.full(450, 0.05)])
         proba_b = np.concatenate([np.full(50, 0.06), np.full(450, 0.05)])
         y, proba, groups = self.two_groups(proba_a, proba_b, y_group, y_group)
         rows = {
             r["group"]: r
-            for r in subgroup_metrics(y, proba, groups, flag_fraction=0.05, n_boot=20)
+            for r in subgroup_metrics(y, proba, groups, flag_threshold=0.5, n_boot=20)
         }
         assert rows["A"]["recall_at_flag"] == pytest.approx(1.0)
         assert rows["B"]["recall_at_flag"] == pytest.approx(0.0)
