@@ -38,17 +38,22 @@ from readmission import __version__
 from readmission.config import (
     CALIBRATION_PLOT_PATH,
     CALIBRATION_SIZE,
+    DECISION_CURVE_PLOT_PATH,
     FEATURE_IMPORTANCE_PLOT_PATH,
     METRICS_PATH,
     MODEL_DIR,
     MODEL_PATH,
     RANDOM_STATE,
     RAW_DATA_PATH,
+    RISK_TIER_THRESHOLDS,
     TEST_SIZE,
     TUNING_LOG_PATH,
 )
 from readmission.evaluation import (
     calibration_curve_plot,
+    capacity_table,
+    decision_curve,
+    decision_curve_plot,
     evaluate,
     expected_calibration_error,
     format_summary,
@@ -74,8 +79,13 @@ from readmission.preprocessing import (
     make_binary_target,
 )
 
-# Operating point for subgroup recall: a care team works the top 10% of the risk list.
-SUBGROUP_FLAG_FRACTION = 0.10
+# Subgroup recall is measured at the policy's follow-up cutoff: anyone moderate or higher.
+SUBGROUP_FLAG_THRESHOLD = RISK_TIER_THRESHOLDS["moderate"]
+
+# Risk cutoffs reported in the capacity table (includes the tier thresholds), and the
+# threshold grid for the decision curve.
+CAPACITY_CUTOFFS = (0.06, 0.08, 0.10, 0.12, 0.14, 0.16, 0.20, 0.25)
+DECISION_CURVE_THRESHOLDS = np.round(np.arange(0.02, 0.41, 0.01), 2)
 
 CV_SCORING = {
     "roc_auc": "roc_auc",
@@ -291,11 +301,18 @@ def main() -> None:
         },
         "lift_table": lift_table(y_test, calibrated_proba),
         "risk_tiers": risk_tier_summary(y_test, calibrated_proba),
+        "thresholds": {
+            "tier_thresholds": RISK_TIER_THRESHOLDS,
+            "capacity": capacity_table(y_test, calibrated_proba, CAPACITY_CUTOFFS),
+            "decision_curve": decision_curve(
+                y_test, calibrated_proba, DECISION_CURVE_THRESHOLDS
+            ),
+        },
         "subgroups": {
-            "flag_fraction": SUBGROUP_FLAG_FRACTION,
+            "flag_threshold": SUBGROUP_FLAG_THRESHOLD,
             "by_attribute": {
                 attribute: subgroup_metrics(
-                    y_test, calibrated_proba, groups, SUBGROUP_FLAG_FRACTION
+                    y_test, calibrated_proba, groups, SUBGROUP_FLAG_THRESHOLD
                 )
                 for attribute, groups in subgroup_columns(X_test).items()
             },
@@ -329,6 +346,9 @@ def main() -> None:
         y_test, uncalibrated_proba, calibrated_proba, CALIBRATION_PLOT_PATH
     )
     feature_importance_plot(metrics["explainability"], FEATURE_IMPORTANCE_PLOT_PATH)
+    decision_curve_plot(
+        metrics["thresholds"]["decision_curve"], DECISION_CURVE_PLOT_PATH
+    )
     tuning_record = {
         "trained_at": metrics["trained_at"],
         "model_version": __version__,
@@ -342,6 +362,7 @@ def main() -> None:
     print(f"Saved metrics to {METRICS_PATH}")
     print(f"Saved calibration curve to {CALIBRATION_PLOT_PATH}")
     print(f"Saved feature importance plot to {FEATURE_IMPORTANCE_PLOT_PATH}")
+    print(f"Saved decision curve to {DECISION_CURVE_PLOT_PATH}")
     print(f"Appended tuning trials to {TUNING_LOG_PATH}")
 
 

@@ -198,20 +198,21 @@ def subgroup_metrics(
     y_true,
     proba,
     groups,
-    flag_fraction: float = 0.10,
+    flag_threshold: float = RISK_TIER_THRESHOLDS["moderate"],
     n_boot: int = 200,
     random_state: int = 0,
 ) -> list[dict]:
     """Per-subgroup calibration, ranking, and recall at a shared operating point.
 
-    Patients are flagged using one cutoff for everyone (the top `flag_fraction` of the
-    whole cohort), mirroring how a care team would work a single prioritized list.
+    Patients are flagged with one probability cutoff for everyone - by default the
+    moderate-tier threshold, i.e. anyone the tier policy sends to follow-up - so the
+    recall figures describe the policy that would actually be deployed.
     Rows are ordered from largest to smallest group.
     """
     y_true = np.asarray(y_true)
     proba = np.asarray(proba, dtype=float)
     groups = np.asarray(groups).astype(str)
-    flagged = proba >= np.quantile(proba, 1 - flag_fraction)
+    flagged = proba >= flag_threshold
     rng = np.random.default_rng(random_state)
 
     values, counts = np.unique(groups, return_counts=True)
@@ -241,6 +242,62 @@ def subgroup_metrics(
                     float(flagged_g[y_g == 1].mean()) if n_positives else None
                 ),
                 "low_support": n_positives < MIN_SUBGROUP_POSITIVES,
+            }
+        )
+    return rows
+
+
+def capacity_table(y_true, proba, cutoffs) -> list[dict]:
+    """What following up with everyone at or above each risk cutoff would mean in practice.
+
+    Volumes are per 100 discharges so they translate to any hospital's size.
+    `number_needed_to_flag` is how many patients get follow-up per readmission
+    among them.
+    """
+    y_true = np.asarray(y_true)
+    proba = np.asarray(proba, dtype=float)
+    total_positives = max(int(y_true.sum()), 1)
+    rows = []
+    for cutoff in cutoffs:
+        flagged = proba >= cutoff
+        caught = int(y_true[flagged].sum())
+        precision = caught / flagged.sum() if flagged.any() else None
+        rows.append(
+            {
+                "cutoff": float(cutoff),
+                "flagged_per_100": float(flagged.mean() * 100),
+                "precision": None if precision is None else float(precision),
+                "recall": float(caught / total_positives),
+                "readmissions_flagged_per_100": float(caught / len(y_true) * 100),
+                "number_needed_to_flag": (float(1 / precision) if precision else None),
+            }
+        )
+    return rows
+
+
+def decision_curve(y_true, proba, thresholds) -> list[dict]:
+    """Net benefit of the model vs. following up with everyone, per threshold probability.
+
+    Net benefit = TP/n - FP/n * t/(1-t). The threshold t encodes the trade-off: at
+    t = 0.12, catching one readmission is judged worth ~7.3 unnecessary follow-ups
+    (0.88 / 0.12). Following up with no one has net benefit 0 at every threshold.
+    Requires calibrated probabilities - the cutoff is read as a real risk.
+    """
+    y_true = np.asarray(y_true)
+    proba = np.asarray(proba, dtype=float)
+    n = len(y_true)
+    prevalence = y_true.mean()
+    rows = []
+    for t in thresholds:
+        odds = t / (1 - t)
+        flagged = proba >= t
+        true_pos = int((y_true[flagged] == 1).sum())
+        false_pos = int((y_true[flagged] == 0).sum())
+        rows.append(
+            {
+                "threshold": float(t),
+                "net_benefit_model": float(true_pos / n - false_pos / n * odds),
+                "net_benefit_treat_all": float(prevalence - (1 - prevalence) * odds),
             }
         )
     return rows
@@ -282,6 +339,69 @@ def calibration_curve_plot(
     plt.close(fig)
 
 
+def decision_curve_plot(rows: list[dict], path: Path) -> None:
+    """Net benefit of the model vs. follow up with everyone / no one, with tier cutoffs."""
+    surface, ink, ink_muted, grid = "#fcfcfb", "#0b0b0b", "#52514e", "#e4e3df"
+    model_color, all_color = "#2a78d6", "#eb6834"  # categorical slots 1 and 2
+
+    thresholds = [r["threshold"] for r in rows]
+    model = [r["net_benefit_model"] for r in rows]
+    treat_all = [r["net_benefit_treat_all"] for r in rows]
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    fig.patch.set_facecolor(surface)
+    ax.set_facecolor(surface)
+    ax.axhline(
+        0, color=ink_muted, linewidth=1.5, linestyle="--", label="Follow up with no one"
+    )
+    ax.plot(
+        thresholds,
+        treat_all,
+        color=all_color,
+        linewidth=2,
+        label="Follow up with everyone",
+    )
+    ax.plot(thresholds, model, color=model_color, linewidth=2, label="Model")
+    # Cutoffs can sit close together, so stagger their labels vertically.
+    for i, (tier, cutoff) in enumerate(RISK_TIER_THRESHOLDS.items()):
+        ax.axvline(cutoff, color=grid, linewidth=1.5, zorder=0)
+        ax.annotate(
+            f"{tier} tier ≥ {cutoff:.2f}",
+            (cutoff, 1),
+            xycoords=("data", "axes fraction"),
+            xytext=(4, -14 - 14 * i),
+            textcoords="offset points",
+            color=ink_muted,
+            fontsize=9,
+        )
+
+    top = max(model) * 1.25
+    ax.set_ylim(-top * 0.25, top)
+    ax.set_xlim(thresholds[0], thresholds[-1])
+    ax.set_title(
+        "Decision curve: when is the model worth using?", loc="left", color=ink, pad=12
+    )
+    ax.set_xlabel(
+        "Threshold probability (risk at which follow-up is worthwhile)", color=ink_muted
+    )
+    ax.set_ylabel(
+        "Net benefit (readmissions caught per patient, net of false alarms)",
+        color=ink_muted,
+    )
+    ax.tick_params(colors=ink_muted, length=0)
+    ax.grid(color=grid, linewidth=0.8)
+    ax.set_axisbelow(True)
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+    for side in ("left", "bottom"):
+        ax.spines[side].set_color(grid)
+    ax.legend(loc="upper right", frameon=False, labelcolor=ink)
+    fig.tight_layout()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path, dpi=130, facecolor=surface)
+    plt.close(fig)
+
+
 def format_summary(metrics: dict) -> str:
     """Format a summary of evaluation metrics - every score next to its reference point."""
     ns = metrics["baselines"]["no_skill"]
@@ -319,12 +439,28 @@ def format_summary(metrics: dict) -> str:
             f"{row['share_of_cohort']:>10.1%}{rendered:>16}"
         )
 
+    capacity = metrics.get("thresholds", {}).get("capacity")
+    if capacity:
+        lines.append("")
+        lines.append(
+            f"{'cutoff':>8}{'flagged/100':>13}{'precision':>11}{'recall':>9}"
+            f"{'caught/100':>12}{'flagged per readmission':>25}"
+        )
+        for row in capacity:
+            precision, nnf = row["precision"], row["number_needed_to_flag"]
+            lines.append(
+                f"{row['cutoff']:>8.2f}{row['flagged_per_100']:>13.1f}"
+                f"{'n/a' if precision is None else f'{precision:.1%}':>11}"
+                f"{row['recall']:>9.1%}{row['readmissions_flagged_per_100']:>12.2f}"
+                f"{'n/a' if nnf is None else f'{nnf:.1f}':>25}"
+            )
+
     subgroups = metrics.get("subgroups")
     if subgroups:
-        flag = subgroups["flag_fraction"]
+        flag = subgroups["flag_threshold"]
         for attribute, rows in subgroups["by_attribute"].items():
             lines.append("")
-            lines.append(f"by {attribute} (flagged = top {flag:.0%} of all patients)")
+            lines.append(f"by {attribute} (flagged = predicted risk >= {flag:.0%})")
             lines.append(
                 f"{'group':>18}{'patients':>10}{'observed':>10}{'predicted':>11}"
                 f"{'roc_auc (95% CI)':>24}{'recall@flag':>13}"
@@ -355,6 +491,9 @@ __all__ = [
     "RISK_TIER_THRESHOLDS",
     "age_band",
     "calibration_curve_plot",
+    "capacity_table",
+    "decision_curve",
+    "decision_curve_plot",
     "evaluate",
     "expected_calibration_error",
     "format_summary",
