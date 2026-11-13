@@ -2,7 +2,7 @@
 
 Predicts 30-day hospital readmission risk for diabetic inpatients at discharge, so discharge-planning teams can prioritize follow-up for the patients most likely to have an early readmission.
 
-**Status: in progress.** EDA, preprocessing, training, evaluation (including subgroup, explainability, and threshold analysis), and CI are done and tested. The **[model card](MODEL_CARD.md)** documents intended use, performance, fairness results, and limitations. The FastAPI serving layer and deployment are not yet implemented (see [Repo structure](#repo-structure)).
+**Status: in progress.** EDA, preprocessing, training, evaluation (including subgroup, explainability, and threshold analysis), a FastAPI prediction service, and CI are done and tested. The **[model card](MODEL_CARD.md)** documents intended use, performance, fairness results, and limitations. Containerization and deployment are not yet implemented.
 
 
 ## Quickstart
@@ -17,11 +17,28 @@ uv run python scripts/download_data.py
 # 3. Train, calibrate, and evaluate the model (writes artifacts to models/)
 uv run python -m readmission.train
 
-# 4. (Optional) Run the EDA notebook (documents every cleaning/feature decision)
+# 4. Serve predictions (interactive docs at http://127.0.0.1:8000/docs)
+uv run python -m uvicorn readmission.api.main:app --reload
+
+# 5. (Optional) Run the EDA notebook (documents every cleaning/feature decision)
 uv run --with jupyter jupyter notebook notebooks/01_eda.ipynb
 ```
 
-Inference is not runnable yet - `src/readmission/api/` is still empty scaffolding. This section will be updated with a `predict`/serve command once that lands.
+Score one encounter (in a second terminal while the server runs):
+
+```bash
+curl -X POST http://127.0.0.1:8000/predict -H "Content-Type: application/json" -d '{
+  "age": 72, "gender": "Female",
+  "admission_type_id": 1, "discharge_disposition_id": 1, "admission_source_id": 7,
+  "time_in_hospital": 5, "num_lab_procedures": 45, "num_procedures": 1, "num_medications": 16,
+  "number_outpatient": 0, "number_emergency": 1, "number_inpatient": 2, "number_diagnoses": 9,
+  "medical_specialty": "InternalMedicine", "diag_1": "428", "diag_2": "250.02", "diag_3": "401",
+  "a1c_result": ">8", "medications": {"insulin": "Up", "metformin": "Steady"},
+  "diabetes_medication_changed": true
+}'
+```
+
+The response is a calibrated risk, a tier (`low` / `moderate` / `high`), and warnings for any input outside the range seen in training. `GET /health` and `GET /model-info` report service status and model metadata.
 
 ## Data
 
@@ -53,8 +70,9 @@ Inference is not runnable yet - `src/readmission/api/` is still empty scaffoldin
 │   ├── train.py          # model selection, tuning, calibration, artifact saving
 │   ├── evaluation.py     # metrics, baselines, lift, calibration, subgroups, capacity, decision curve
 │   ├── explainability.py # SHAP contributions and permutation importance
-│   ├── api/              # empty - FastAPI serving layer not yet built
-├── tests/                # pytest suite for preprocessing, evaluation, and explainability (API tests pending)
+│   ├── artifact.py       # model artifact: model + tier thresholds + input ranges, validated on load
+│   ├── api/              # FastAPI service: request/response schemas (schemas.py) and endpoints (main.py)
+├── tests/                # pytest suite for preprocessing, evaluation, explainability, and the API
 ```
 
 ## Approach
@@ -109,11 +127,17 @@ Full metrics are written to `models/metrics.json`, with plots in `models/`: the 
 
 ## Deployment and operations
 
-Not applicable - nothing is deployed. `src/readmission/api/` is scaffolded (`main.py`, `schemas.py`) but empty. This section will be filled in once an inference endpoint exists.
+The API runs locally (see [Quickstart](#quickstart)); it is not yet containerized or deployed. Design choices that matter for operating it:
+
+- **No training/serving skew:** each request is translated into the raw dataset's format and goes through the same `engineer_features()` as training. A test asserts the API's features and predictions match the training path exactly.
+- **The model carries its own policy:** tier thresholds and training input ranges are saved inside the model artifact, so a deployed model uses the thresholds it was validated with even if `config.py` changes.
+- **Strict input contract:** unknown fields, ICD-10 codes, stays over 14 days, patients under 18, and hospice discharges are rejected with a 422 explaining why (all outside the training data or the model card's scope).
+- **Fail fast:** the service refuses to start if the model file is missing or was trained on different features than the code produces.
+- **Model path:** `models/model.joblib` by default; override with the `READMISSION_MODEL_PATH` environment variable.
 
 ## Housekeeping
 
-- **Tests:** `uv run pytest` (covers preprocessing and evaluation; `tests/test_api.py` is an empty placeholder until the API exists).
+- **Tests:** `uv run pytest` (preprocessing, evaluation, explainability, and the API; the API tests train a small model on synthetic data, so they don't need the dataset).
 - **Lint:** `uv run ruff check .`
 
 ## Citation
