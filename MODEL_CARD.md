@@ -160,7 +160,7 @@ Outcomes arrive 30 days after each prediction, so input-based checks run continu
 | Observed vs predicted readmission rate per tier | Monthly, 30+ days after discharge | Tier rates drifting outside their training ranges → recalibrate |
 | Subgroup calibration gap and recall (race, gender, age) | Quarterly | African American / Hispanic recall or calibration gap growing → escalate (see Ethical considerations) |
 
-**On every retrain:** rerun the full evaluation (subgroups, explainability, capacity, decision curve), re-derive tier cutoffs on the calibration split, confirm the highest predicted risk is plausible, and update this card.
+**On every retrain:** rerun the full evaluation (subgroups, explainability, capacity, decision curve), re-derive tier cutoffs on the calibration split, confirm the highest predicted risk is plausible, and update this card. The release pipeline enforces the automatable part: a model is only published if it passes the quality gate in `src/readmission/quality_gate.py` (performance floors, beating the incumbent rule, tier volumes within the ranges above, and subgroup calibration gaps within limits).
 
 ## References
 
