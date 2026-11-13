@@ -39,7 +39,7 @@ GRID_COLOR = "#e4e3df"
 
 
 def source_feature(output_name: str) -> str:
-    """Map a preprocessed column name (e.g. 'race_Caucasian') back to its input feature."""
+    """Map a preprocessed column name (e.g. 'gender_Male') back to its input feature."""
     if output_name in FEATURE_COLUMNS:
         return output_name
     matches = [f for f in CATEGORICAL_FEATURES if output_name.startswith(f"{f}_")]

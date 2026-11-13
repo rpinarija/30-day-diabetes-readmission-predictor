@@ -23,7 +23,6 @@ NUMERIC_FEATURES = [
 ]
 
 CATEGORICAL_FEATURES = [
-    "race",
     "gender",
     "admission_type",
     "discharge_disposition",
@@ -41,6 +40,12 @@ CATEGORICAL_FEATURES = [
 ]
 
 FEATURE_COLUMNS = NUMERIC_FEATURES + CATEGORICAL_FEATURES
+
+# Patient attributes used only to audit the model for fairness, never as model inputs.
+# Race was removed as an input: it added ~0.0015 ROC-AUC (24th of 27 features by SHAP),
+# and current clinical-modeling practice avoids race as a predictor without a specific
+# justification. Keeping it here lets subgroup evaluation still check every race group.
+AUDIT_COLUMNS = ["race"]
 
 # All 23 diabetes-medications columns in the dataset
 # Possible values per column are: 'No', 'Steady', 'Up', 'Down'
@@ -273,12 +278,18 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
         source = out.get(diag_col, pd.Series(np.nan, index=out.index))
         out[f"{diag_col}_category"] = source.map(map_icd9_to_category)
 
-    out["race"] = out["race"].fillna("missing")
     # "None" here indicates the lab was not ordered
     out["max_glu_serum"] = out["max_glu_serum"].fillna("None")
     out["A1Cresult"] = out["A1Cresult"].fillna("None")
 
     return out[FEATURE_COLUMNS]
+
+
+def audit_attributes(df: pd.DataFrame) -> pd.DataFrame:
+    """Fairness-audit attributes for each encounter, row-aligned with engineer_features."""
+    out = df.replace("?", np.nan)
+    out["race"] = out["race"].fillna("missing")
+    return out[AUDIT_COLUMNS]
 
 
 def build_preprocessing_pipeline() -> ColumnTransformer:

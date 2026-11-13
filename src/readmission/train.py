@@ -74,6 +74,7 @@ from readmission.explainability import (
     permutation_importance_table,
 )
 from readmission.preprocessing import (
+    audit_attributes,
     build_preprocessing_pipeline,
     clean_encounters,
     engineer_features,
@@ -232,11 +233,13 @@ def main() -> None:
     cleaned = clean_encounters(raw)
     X = engineer_features(cleaned)
     y = make_binary_target(cleaned["readmitted"])
+    audit = audit_attributes(cleaned)  # fairness audits only; never a model input
     print(f"  {len(raw):,} raw encounters -> {len(X):,} after encounters")
     print(f"  possitive class (readmitted <30d): {y.mean():.3%}")
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=TEST_SIZE, stratify=y, random_state=RANDOM_STATE
+    # Splitting `audit` alongside X and y keeps it row-aligned without changing the split.
+    X_train, X_test, y_train, y_test, _, audit_test = train_test_split(
+        X, y, audit, test_size=TEST_SIZE, stratify=y, random_state=RANDOM_STATE
     )
 
     scale_pos_weight = float((y_train == 0).sum() / (y_train == 1).sum())
@@ -317,7 +320,7 @@ def main() -> None:
                 attribute: subgroup_metrics(
                     y_test, calibrated_proba, groups, SUBGROUP_FLAG_THRESHOLD
                 )
-                for attribute, groups in subgroup_columns(X_test).items()
+                for attribute, groups in subgroup_columns(X_test, audit_test).items()
             },
         },
     }

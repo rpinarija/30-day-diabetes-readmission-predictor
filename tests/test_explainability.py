@@ -82,7 +82,7 @@ class TestSourceFeature:
         ("output_name", "expected"),
         [
             ("number_inpatient", "number_inpatient"),
-            ("race_Caucasian", "race"),
+            ("gender_Male", "gender"),
             ("admission_type_emergency", "admission_type"),
             ("diag_1_category_circulatory", "diag_1_category"),
         ],
@@ -154,13 +154,13 @@ class TestImportance:
     def test_categorical_rows_name_their_extreme_levels(self, cohort, xgb_pipeline):
         X, _ = cohort
         contributions, _ = feature_contributions(xgb_pipeline, X)
-        race = next(
+        discharge = next(
             r
             for r in contribution_importance(contributions, X)
-            if r["feature"] == "race"
+            if r["feature"] == "discharge_disposition"
         )
-        assert race["highest_risk_level"] in set(X["race"])
-        assert race["lowest_risk_level"] in set(X["race"])
+        assert discharge["highest_risk_level"] in set(X["discharge_disposition"])
+        assert discharge["lowest_risk_level"] in set(X["discharge_disposition"])
 
     def test_rows_are_sorted_by_importance(self, cohort, xgb_pipeline):
         X, _ = cohort

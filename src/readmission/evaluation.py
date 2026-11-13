@@ -174,10 +174,14 @@ def age_band(age_midpoint: pd.Series) -> pd.Series:
     return bands.astype(str)
 
 
-def subgroup_columns(X: pd.DataFrame) -> dict[str, pd.Series]:
-    """The patient attributes to break performance out by, one label per patient."""
+def subgroup_columns(X: pd.DataFrame, audit: pd.DataFrame) -> dict[str, pd.Series]:
+    """The patient attributes to break performance out by, one label per patient.
+
+    Race comes from the audit attributes (it is not a model input); gender and age
+    come from the model features.
+    """
     return {
-        "race": X["race"],
+        "race": audit["race"],
         "gender": X["gender"],
         "age_band": age_band(X["age_midpoint"]),
     }

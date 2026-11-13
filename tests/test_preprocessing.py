@@ -5,9 +5,11 @@ import pandas as pd
 import pytest
 
 from readmission.preprocessing import (
+    AUDIT_COLUMNS,
     CATEGORICAL_FEATURES,
     FEATURE_COLUMNS,
     NUMERIC_FEATURES,
+    audit_attributes,
     build_preprocessing_pipeline,
     clean_encounters,
     engineer_features,
@@ -188,9 +190,27 @@ class TestEngineerFeatures:
         assert len(features) == 1
         assert not features[NUMERIC_FEATURES].isna().any().any()
 
-    def test_unseen_missing_race_becomes_category(self):
+
+# ---------------------------------------------------------------------------
+# Audit attributes (fairness evaluation only)
+# ---------------------------------------------------------------------------
+
+
+class TestAuditAttributes:
+    def test_audit_columns_are_never_model_inputs(self):
+        """Race was deliberately removed as a model input; this pins that decision."""
+        assert set(AUDIT_COLUMNS).isdisjoint(FEATURE_COLUMNS)
+        assert "race" not in FEATURE_COLUMNS
+
+    def test_missing_race_becomes_category(self):
         df = pd.DataFrame([make_raw_encounter(race="?")])
-        assert engineer_features(df)["race"].iloc[0] == "missing"
+        assert audit_attributes(df)["race"].iloc[0] == "missing"
+
+    def test_rows_align_with_feature_matrix(self, raw_df):
+        cleaned = clean_encounters(raw_df)
+        audit = audit_attributes(cleaned)
+        assert list(audit.columns) == AUDIT_COLUMNS
+        assert audit.index.equals(engineer_features(cleaned).index)
 
 
 # ---------------------------------------------------------------------------
@@ -211,7 +231,7 @@ class TestBuildPreprocessor:
         preprocessor = build_preprocessing_pipeline()
         preprocessor.fit(features)
         novel = features.copy()
-        novel.loc[novel.index[0], "race"] = "Martian"
+        novel.loc[novel.index[0], "admission_source"] = "Martian"
         matrix = preprocessor.transform(novel)
         assert np.isfinite(matrix).all()
 
