@@ -21,6 +21,14 @@ matplotlib.use("Agg")
 
 DEFAULT_TOP_PROPORTIONS = (0.05, 0.10, 0.15, 0.20, 0.30)
 
+# Age bands for subgroup evaluation. Wider than the raw 10-year buckets so each band
+# has enough readmissions in the test set for stable estimates.
+AGE_BAND_EDGES = [0, 50, 70, 80, 100]
+AGE_BAND_LABELS = ["<50", "50-69", "70-79", "80+"]
+
+# Below this many readmitted patients, a subgroup's ROC-AUC is too noisy to read much into.
+MIN_SUBGROUP_POSITIVES = 30
+
 
 def evaluate(y_true, proba) -> dict[str, float]:
     """Headlines scores for a set of predicted probabilities."""
@@ -153,6 +161,91 @@ def risk_tier_summary(y_true, proba) -> list[dict[str, float]]:
     return rows
 
 
+def age_band(age_midpoint: pd.Series) -> pd.Series:
+    """Bucket age midpoints into the bands used for subgroup evaluation."""
+    bands = pd.cut(
+        age_midpoint, bins=AGE_BAND_EDGES, labels=AGE_BAND_LABELS, right=False
+    )
+    return bands.astype(str)
+
+
+def subgroup_columns(X: pd.DataFrame) -> dict[str, pd.Series]:
+    """The patient attributes to break performance out by, one label per patient."""
+    return {
+        "race": X["race"],
+        "gender": X["gender"],
+        "age_band": age_band(X["age_midpoint"]),
+    }
+
+
+def _bootstrap_auc_ci(
+    y_true: np.ndarray, proba: np.ndarray, n_boot: int, rng: np.random.Generator
+) -> tuple[float, float] | tuple[None, None]:
+    """95% percentile-bootstrap interval for ROC-AUC."""
+    aucs = []
+    for _ in range(n_boot):
+        idx = rng.integers(0, len(y_true), len(y_true))
+        if y_true[idx].min() == y_true[idx].max():
+            continue  # resample drew a single class; AUC undefined
+        aucs.append(roc_auc_score(y_true[idx], proba[idx]))
+    if len(aucs) < n_boot // 2:
+        return None, None
+    low, high = np.percentile(aucs, [2.5, 97.5])
+    return float(low), float(high)
+
+
+def subgroup_metrics(
+    y_true,
+    proba,
+    groups,
+    flag_fraction: float = 0.10,
+    n_boot: int = 200,
+    random_state: int = 0,
+) -> list[dict]:
+    """Per-subgroup calibration, ranking, and recall at a shared operating point.
+
+    Patients are flagged using one cutoff for everyone (the top `flag_fraction` of the
+    whole cohort), mirroring how a care team would work a single prioritized list.
+    Rows are ordered from largest to smallest group.
+    """
+    y_true = np.asarray(y_true)
+    proba = np.asarray(proba, dtype=float)
+    groups = np.asarray(groups).astype(str)
+    flagged = proba >= np.quantile(proba, 1 - flag_fraction)
+    rng = np.random.default_rng(random_state)
+
+    values, counts = np.unique(groups, return_counts=True)
+    rows = []
+    for value in values[np.argsort(-counts, kind="stable")]:
+        mask = groups == value
+        y_g, p_g, flagged_g = y_true[mask], proba[mask], flagged[mask]
+        n_positives = int(y_g.sum())
+        has_both_classes = 0 < n_positives < mask.sum()
+        ci_low, ci_high = (
+            _bootstrap_auc_ci(y_g, p_g, n_boot, rng)
+            if has_both_classes
+            else (None, None)
+        )
+        rows.append(
+            {
+                "group": str(value),
+                "n_patients": int(mask.sum()),
+                "n_readmitted": n_positives,
+                "observed_rate": float(y_g.mean()),
+                "mean_predicted": float(p_g.mean()),
+                "calibration_gap": float(p_g.mean() - y_g.mean()),
+                "roc_auc": float(roc_auc_score(y_g, p_g)) if has_both_classes else None,
+                "roc_auc_ci": [ci_low, ci_high],
+                "flag_rate": float(flagged_g.mean()),
+                "recall_at_flag": (
+                    float(flagged_g[y_g == 1].mean()) if n_positives else None
+                ),
+                "low_support": n_positives < MIN_SUBGROUP_POSITIVES,
+            }
+        )
+    return rows
+
+
 def calibration_curve_plot(
     y_true, uncalibrated_proba, calibrated_proba, path: Path, n_bins: int = 10
 ) -> None:
@@ -213,8 +306,8 @@ def format_summary(metrics: dict) -> str:
     ]
     for row in metrics["lift_table"]:
         lines.append(
-            f"{row['top_fraction']:>8.0%}{row['n_flagged']:>10}"
-            f"{row['precision']:>12.3f}{row['recall']:>10.1f}{row['lift']:>8.2f}x"
+            f"{row['top_fraction']:>8.0%}{row['n_flagged']:>12,}"
+            f"{row['precision']:>12.3f}{row['recall']:>12.1%}{row['lift']:>7.2f}x"
         )
     lines.append("")
     lines.append(f"{'risk_tier':>10}{'patients':>12}{'share':>10}{'observed rate':>16}")
@@ -225,12 +318,42 @@ def format_summary(metrics: dict) -> str:
             f"{row['tier']:>10}{row['n_patients']:>12,}"
             f"{row['share_of_cohort']:>10.1%}{rendered:>16}"
         )
+
+    subgroups = metrics.get("subgroups")
+    if subgroups:
+        flag = subgroups["flag_fraction"]
+        for attribute, rows in subgroups["by_attribute"].items():
+            lines.append("")
+            lines.append(f"by {attribute} (flagged = top {flag:.0%} of all patients)")
+            lines.append(
+                f"{'group':>18}{'patients':>10}{'observed':>10}{'predicted':>11}"
+                f"{'roc_auc (95% CI)':>24}{'recall@flag':>13}"
+            )
+            for row in rows:
+                low, high = row["roc_auc_ci"]
+                if row["roc_auc"] is None:
+                    auc = "n/a"
+                elif low is None:
+                    auc = f"{row['roc_auc']:.3f}"
+                else:
+                    auc = f"{row['roc_auc']:.3f} ({low:.2f}-{high:.2f})"
+                recall = row["recall_at_flag"]
+                name = row["group"] + ("*" if row["low_support"] else "")
+                lines.append(
+                    f"{name:>18}{row['n_patients']:>10,}{row['observed_rate']:>10.1%}"
+                    f"{row['mean_predicted']:>11.1%}{auc:>24}"
+                    f"{'n/a' if recall is None else f'{recall:.1%}':>13}"
+                )
+        lines.append(
+            f"* fewer than {MIN_SUBGROUP_POSITIVES} readmissions: metrics are noisy"
+        )
     return "\n".join(lines)
 
 
 __all__ = [
     "RISK_TIER_ORDER",
     "RISK_TIER_THRESHOLDS",
+    "age_band",
     "calibration_curve_plot",
     "evaluate",
     "expected_calibration_error",
@@ -240,4 +363,6 @@ __all__ = [
     "murphy_decomposition",
     "no_skill_baselines",
     "risk_tier_summary",
+    "subgroup_columns",
+    "subgroup_metrics",
 ]

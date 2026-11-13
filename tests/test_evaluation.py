@@ -9,6 +9,8 @@ from readmission.config import (
     assign_risk_tier,
 )
 from readmission.evaluation import (
+    MIN_SUBGROUP_POSITIVES,
+    age_band,
     evaluate,
     expected_calibration_error,
     incumbent_baseline,
@@ -16,6 +18,8 @@ from readmission.evaluation import (
     murphy_decomposition,
     no_skill_baselines,
     risk_tier_summary,
+    subgroup_columns,
+    subgroup_metrics,
 )
 
 
@@ -212,6 +216,117 @@ class TestRiskTierSummary:
             for r in risk_tier_summary(imbalanced_labels, proba)
         }
         assert rows == {"low": 500, "moderate": 300, "high": 200}
+
+
+# ---------------------------------------------------------------------------
+# Subgroups
+# ---------------------------------------------------------------------------
+
+
+class TestAgeBand:
+    @pytest.mark.parametrize(
+        ("midpoint", "expected"),
+        [
+            (5, "<50"),
+            (45, "<50"),
+            (55, "50-69"),
+            (65, "50-69"),
+            (75, "70-79"),
+            (95, "80+"),
+        ],
+    )
+    def test_dataset_midpoints_map_to_bands(self, midpoint, expected):
+        assert age_band(pd.Series([midpoint])).iloc[0] == expected
+
+
+class TestSubgroupColumns:
+    def test_uses_engineered_feature_columns(self, raw_df):
+        from readmission.preprocessing import clean_encounters, engineer_features
+
+        X = engineer_features(clean_encounters(raw_df))
+        columns = subgroup_columns(X)
+        assert set(columns) == {"race", "gender", "age_band"}
+        assert all(len(col) == len(X) for col in columns.values())
+
+
+class TestSubgroupMetrics:
+    @staticmethod
+    def two_groups(proba_a, proba_b, y_a, y_b):
+        """Stack two groups' scores and labels into cohort-level arrays."""
+        return (
+            np.concatenate([y_a, y_b]),
+            np.concatenate([proba_a, proba_b]),
+            np.array(["A"] * len(y_a) + ["B"] * len(y_b)),
+        )
+
+    def test_groups_partition_the_cohort(self, imbalanced_labels):
+        rng = np.random.default_rng(6)
+        groups = rng.choice(["x", "y", "z"], size=1000)
+        rows = subgroup_metrics(imbalanced_labels, rng.random(1000), groups, n_boot=20)
+        assert sum(r["n_patients"] for r in rows) == 1000
+        assert sum(r["n_readmitted"] for r in rows) == 100
+
+    def test_largest_group_listed_first(self):
+        y = np.array([0, 1] * 300)
+        groups = np.array(["small"] * 100 + ["large"] * 500)
+        rows = subgroup_metrics(y, np.linspace(0, 1, 600), groups, n_boot=20)
+        assert [r["group"] for r in rows] == ["large", "small"]
+
+    def test_detects_group_specific_overprediction(self):
+        """Both groups readmit at 10%, but group B is predicted at 30%.
+        A cohort-level calibration check would blur this; per-group gaps expose it."""
+        y_group = np.array([1] * 50 + [0] * 450)
+        y, proba, groups = self.two_groups(
+            np.full(500, 0.10), np.full(500, 0.30), y_group, y_group
+        )
+        rows = {r["group"]: r for r in subgroup_metrics(y, proba, groups, n_boot=20)}
+        assert rows["A"]["calibration_gap"] == pytest.approx(0.0)
+        assert rows["B"]["calibration_gap"] == pytest.approx(0.20)
+
+    def test_detects_unequal_recall_at_shared_cutoff(self):
+        """Group A's readmissions score high and group B's score low, so a single
+        top-10% cutoff catches every A readmission and no B readmission."""
+        y_group = np.array([1] * 50 + [0] * 450)
+        proba_a = np.concatenate([np.full(50, 0.9), np.full(450, 0.05)])
+        proba_b = np.concatenate([np.full(50, 0.06), np.full(450, 0.05)])
+        y, proba, groups = self.two_groups(proba_a, proba_b, y_group, y_group)
+        rows = {
+            r["group"]: r
+            for r in subgroup_metrics(y, proba, groups, flag_fraction=0.05, n_boot=20)
+        }
+        assert rows["A"]["recall_at_flag"] == pytest.approx(1.0)
+        assert rows["B"]["recall_at_flag"] == pytest.approx(0.0)
+
+    def test_single_class_group_has_no_auc(self):
+        """AUC is undefined without both outcomes; report None rather than crash."""
+        y = np.array([0, 1] * 50 + [0] * 20)
+        groups = np.array(["mixed"] * 100 + ["no_readmissions"] * 20)
+        rows = {
+            r["group"]: r
+            for r in subgroup_metrics(y, np.linspace(0, 1, 120), groups, n_boot=20)
+        }
+        assert rows["no_readmissions"]["roc_auc"] is None
+        assert rows["no_readmissions"]["roc_auc_ci"] == [None, None]
+        assert rows["no_readmissions"]["recall_at_flag"] is None
+
+    def test_small_groups_are_flagged_low_support(self):
+        n_pos = MIN_SUBGROUP_POSITIVES - 1
+        y = np.array([1] * n_pos + [0] * 200)
+        rows = subgroup_metrics(
+            y, np.linspace(0, 1, len(y)), np.full(len(y), "g"), n_boot=20
+        )
+        assert rows[0]["low_support"] is True
+
+    def test_auc_interval_brackets_the_estimate_and_is_reproducible(self):
+        rng = np.random.default_rng(7)
+        y = rng.integers(0, 2, 400)
+        proba = np.clip(y * 0.3 + rng.random(400) * 0.7, 0, 1)
+        groups = np.full(400, "g")
+        first = subgroup_metrics(y, proba, groups, random_state=1)[0]
+        again = subgroup_metrics(y, proba, groups, random_state=1)[0]
+        low, high = first["roc_auc_ci"]
+        assert low <= first["roc_auc"] <= high
+        assert first["roc_auc_ci"] == again["roc_auc_ci"]
 
 
 # ---------------------------------------------------------------------------

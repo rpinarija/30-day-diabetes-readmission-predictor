@@ -56,6 +56,8 @@ from readmission.evaluation import (
     murphy_decomposition,
     no_skill_baselines,
     risk_tier_summary,
+    subgroup_columns,
+    subgroup_metrics,
 )
 from readmission.preprocessing import (
     build_preprocessing_pipeline,
@@ -63,6 +65,9 @@ from readmission.preprocessing import (
     engineer_features,
     make_binary_target,
 )
+
+# Operating point for subgroup recall: a care team works the top 10% of the risk list.
+SUBGROUP_FLAG_FRACTION = 0.10
 
 CV_SCORING = {
     "roc_auc": "roc_auc",
@@ -278,6 +283,15 @@ def main() -> None:
         },
         "lift_table": lift_table(y_test, calibrated_proba),
         "risk_tiers": risk_tier_summary(y_test, calibrated_proba),
+        "subgroups": {
+            "flag_fraction": SUBGROUP_FLAG_FRACTION,
+            "by_attribute": {
+                attribute: subgroup_metrics(
+                    y_test, calibrated_proba, groups, SUBGROUP_FLAG_FRACTION
+                )
+                for attribute, groups in subgroup_columns(X_test).items()
+            },
+        },
     }
     print(format_summary(metrics))
 
