@@ -40,10 +40,16 @@ RISK_TIER_THRESHOLDS = {
 }
 
 
-def assign_risk_tier(probability: float) -> str:
-    """Assign a risk tier based on predicted probability"""
-    if probability >= RISK_TIER_THRESHOLDS["high"]:
+def assign_risk_tier(
+    probability: float, thresholds: dict[str, float] | None = None
+) -> str:
+    """Assign a risk tier based on predicted probability.
+
+    Serving passes the thresholds stored with the model; training uses the config values.
+    """
+    thresholds = RISK_TIER_THRESHOLDS if thresholds is None else thresholds
+    if probability >= thresholds["high"]:
         return "high"
-    if probability >= RISK_TIER_THRESHOLDS["moderate"]:
+    if probability >= thresholds["moderate"]:
         return "moderate"
     return "low"
