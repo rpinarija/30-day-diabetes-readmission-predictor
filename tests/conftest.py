@@ -1,5 +1,6 @@
 """Shared test fixtures: a small synthetic raw-encounter DataFrame."""
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -42,6 +43,29 @@ def make_raw_encounter(**overides) -> dict:
     row["metformin"] = "Steady"
     row.update(overides)
     return row
+
+
+def make_synthetic_cohort(n: int = 400, seed: int = 0) -> pd.DataFrame:
+    """Raw encounters whose readmission depends only on prior inpatient visits
+    (3+ visits -> readmitted, with 10% label noise). Other features vary at random."""
+    rng = np.random.default_rng(seed)
+    rows = []
+    for i in range(n):
+        inpatient = int(rng.integers(0, 6))
+        readmitted = (inpatient >= 3) != (rng.random() < 0.10)
+        rows.append(
+            make_raw_encounter(
+                encounter_id=i,
+                patient_nbr=i,
+                number_inpatient=inpatient,
+                time_in_hospital=int(rng.integers(1, 14)),
+                discharge_disposition_id=int(rng.choice([1, 3, 6])),
+                race=str(rng.choice(["Caucasian", "AfricanAmerican", "Hispanic"])),
+                age=str(rng.choice(["[40-50)", "[60-70)", "[80-90)"])),
+                readmitted="<30" if readmitted else "NO",
+            )
+        )
+    return pd.DataFrame(rows)
 
 
 @pytest.fixture

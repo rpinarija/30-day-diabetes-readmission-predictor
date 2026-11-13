@@ -2,7 +2,6 @@
 signal deliberately planted in synthetic data."""
 
 import numpy as np
-import pandas as pd
 import pytest
 from sklearn.dummy import DummyClassifier
 from sklearn.linear_model import LogisticRegression
@@ -22,31 +21,12 @@ from readmission.preprocessing import (
     engineer_features,
     make_binary_target,
 )
-from tests.conftest import make_raw_encounter
+from tests.conftest import make_synthetic_cohort
 
 
 @pytest.fixture(scope="module")
 def cohort():
-    """400 synthetic patients whose readmission depends only on prior inpatient visits
-    (3+ visits -> readmitted, with 10% label noise). Other features vary at random."""
-    rng = np.random.default_rng(0)
-    rows = []
-    for i in range(400):
-        inpatient = int(rng.integers(0, 6))
-        readmitted = (inpatient >= 3) != (rng.random() < 0.10)
-        rows.append(
-            make_raw_encounter(
-                encounter_id=i,
-                patient_nbr=i,
-                number_inpatient=inpatient,
-                time_in_hospital=int(rng.integers(1, 14)),
-                discharge_disposition_id=int(rng.choice([1, 3, 6])),
-                race=str(rng.choice(["Caucasian", "AfricanAmerican", "Hispanic"])),
-                age=str(rng.choice(["[40-50)", "[60-70)", "[80-90)"])),
-                readmitted="<30" if readmitted else "NO",
-            )
-        )
-    raw = pd.DataFrame(rows)
+    raw = make_synthetic_cohort()
     return engineer_features(raw), make_binary_target(raw["readmitted"])
 
 
