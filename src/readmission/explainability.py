@@ -6,8 +6,8 @@ Two complementary views:
 - Permutation importance measures how much ranking performance (ROC-AUC) depends on each
   feature, by shuffling it and re-scoring. It is model-agnostic and uses held-out data.
 
-Contributions explain the model's log-odds score before isotonic calibration. Calibration
-is monotone, so feature rankings and directions carry over to the calibrated probabilities,
+Contributions explain the model's log-odds score before calibration. Calibration is
+monotone, so feature rankings and directions carry over to the calibrated probabilities,
 but contribution magnitudes are in log-odds, not probability points.
 """
 
