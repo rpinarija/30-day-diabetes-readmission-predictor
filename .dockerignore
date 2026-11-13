@@ -1,0 +1,9 @@
+# Allowlist: send Docker only what the image needs. Everything else - the raw dataset,
+# .venv, notebooks, git history, any local secrets - never leaves this machine.
+*
+!pyproject.toml
+!uv.lock
+!README.md
+!src/
+!models/model.joblib
+**/__pycache__

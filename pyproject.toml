@@ -12,7 +12,10 @@ dependencies = [
     "numpy>=2.5.1",
     "scipy>=1.16.3",
     "scikit-learn>=1.9.0",
-    "xgboost>=3.3.0",
+    # CPU-only build of XGBoost: same `import xgboost`, without ~580 MB of GPU libraries
+    # this service never uses. Held at 3.3.x, the version the current model was trained
+    # with; upgrade deliberately, with a retrain and full evaluation.
+    "xgboost-cpu>=3.3.0,<3.4",
     "joblib>=1.5.3",
     "matplotlib>=3.11.1",
     "fastapi[standard]>=0.141.1",

@@ -2,7 +2,7 @@
 
 Predicts 30-day hospital readmission risk for diabetic inpatients at discharge, so discharge-planning teams can prioritize follow-up for the patients most likely to have an early readmission.
 
-**Status: in progress.** EDA, preprocessing, training, evaluation (including subgroup, explainability, and threshold analysis), a FastAPI prediction service, and CI are done and tested. The **[model card](MODEL_CARD.md)** documents intended use, performance, fairness results, and limitations. Containerization and deployment are not yet implemented.
+**Status: in progress.** EDA, preprocessing, training, evaluation (including subgroup, explainability, and threshold analysis), a FastAPI prediction service, a Docker image, and CI are done and tested. The **[model card](MODEL_CARD.md)** documents intended use, performance, fairness results, and limitations. Cloud deployment is not yet implemented.
 
 
 ## Quickstart
@@ -40,6 +40,21 @@ curl -X POST http://127.0.0.1:8000/predict -H "Content-Type: application/json" -
 
 The response is a calibrated risk, a tier (`low` / `moderate` / `high`), the top 3 factors behind this patient's score (plain-language label, the patient's value, and whether it raises or lowers risk), and warnings for any input outside the range seen in training. The factors describe the model's reasoning, not clinical causes. `GET /health` and `GET /model-info` report service status and model metadata.
 
+### Run with Docker
+
+The image bundles production dependencies, the package, and the trained model, so train first (Quickstart step 3):
+
+```bash
+docker build -t readmission-api .
+docker run -p 8000:8000 readmission-api
+```
+
+The API is then at http://127.0.0.1:8000, the same as above. To serve a different model without rebuilding, mount it and point the service at it:
+
+```bash
+docker run -p 8000:8000 -v "$(pwd)/models:/models" -e READMISSION_MODEL_PATH=/models/model.joblib readmission-api
+```
+
 ## Data
 
 - **Source:** [Diabetes 130-US Hospitals, 1999–2008](https://archive.ics.uci.edu/dataset/296/diabetes+130-us+hospitals+for+years+1999-2008) (UCI ML Repository), described in Strack et al. (2014), *"Impact of HbA1c Measurement on Hospital Readmission Rates"*, BioMed Research International.
@@ -54,6 +69,7 @@ The response is a calibrated risk, a tier (`low` / `moderate` / `high`), the top
 
 ```
 ├── MODEL_CARD.md         # intended use, performance, fairness, limitations
+├── Dockerfile            # multi-stage image for the prediction API (model baked in)
 ├── .github/workflows/    # CI: lint, format check, and tests on every push and PR
 ├── data/
 │   ├── raw/              # downloaded via scripts/download_data.py, gitignored
@@ -127,13 +143,14 @@ Full metrics are written to `models/metrics.json`, with plots in `models/`: the 
 
 ## Deployment and operations
 
-The API runs locally (see [Quickstart](#quickstart)); it is not yet containerized or deployed. Design choices that matter for operating it:
+The API runs locally or as a Docker container (see [Quickstart](#quickstart)); it is not yet deployed to a cloud host. Design choices that matter for operating it:
 
 - **No training/serving skew:** each request is translated into the raw dataset's format and goes through the same `engineer_features()` as training. A test asserts the API's features and predictions match the training path exactly.
 - **The model carries its own policy:** tier thresholds and training input ranges are saved inside the model artifact, so a deployed model uses the thresholds it was validated with even if `config.py` changes.
 - **Strict input contract:** unknown fields, ICD-10 codes, stays over 14 days, patients under 18, and hospice discharges are rejected with a 422 explaining why (all outside the training data or the model card's scope).
 - **Fail fast:** the service refuses to start if the model file is missing or was trained on different features than the code produces.
 - **Model path:** `models/model.joblib` by default; override with the `READMISSION_MODEL_PATH` environment variable.
+- **Container image:** the model is baked in, so one image = one exact code + model version, and rolling back means running the previous image. The image is multi-stage (build tools never reach the final image), installs production dependencies only, runs as a non-root user, and has a Docker health check on `/health`. An allowlist `.dockerignore` keeps the raw dataset and everything else out of the build.
 
 ## Housekeeping
 
