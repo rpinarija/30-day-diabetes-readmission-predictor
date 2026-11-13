@@ -43,9 +43,10 @@ def make_raw_encounter(**overides) -> dict:
     row.update(overides)
     return row
 
+
 @pytest.fixture
 def raw_df() -> pd.DataFrame:
-    """"Five encounters covering the cleaning edge cases:
+    """ "Five encounters covering the cleaning edge cases:
     - rows 1-2: same patient twice (dedup should keep the earlier encounter)
     - row 3: discharged to hospice (should be dropped)
     - row 4: gender Uknown/Invalid (should be dropped)

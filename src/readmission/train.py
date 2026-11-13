@@ -1,4 +1,4 @@
-""" Train the model for readmission prediction.
+"""Train the model for readmission prediction.
 
 Design:
 1. 80/20 stratidied train/test split
@@ -84,6 +84,7 @@ PARAM_DISTRIBUTIONS = {
     },
 }
 
+
 def build_candidates(scale_pos_weight: float = 1.0) -> dict[str, Pipeline]:
     """Both candidate models, each wrapped with the same preprocessing pipeline."""
     logistic = LogisticRegression(
@@ -119,6 +120,7 @@ def build_candidates(scale_pos_weight: float = 1.0) -> dict[str, Pipeline]:
         ),
     }
 
+
 def cross_validate_candidates(
     candidates: dict[str, Pipeline], X: pd.DataFrame, y: pd.Series
 ) -> dict[str, dict[str, float]]:
@@ -127,7 +129,7 @@ def cross_validate_candidates(
     results: dict[str, dict[str, float]] = {}
     for name, pipeline in candidates.items():
         print(f"Cross-validating {name}...")
-        scores = cross_validate(pipeline, X, y, cv=cv,  scoring=CV_SCORING, n_jobs=-1)
+        scores = cross_validate(pipeline, X, y, cv=cv, scoring=CV_SCORING, n_jobs=-1)
         results[name] = {}
         for metric in CV_SCORING:
             values = scores[f"test_{metric}"]
@@ -143,6 +145,7 @@ def cross_validate_candidates(
         )
     return results
 
+
 def summarize_cv_results(cv_results: dict) -> list[dict]:
     """Compact per-trial summary from a RandomizedSearchCV's cv_results_."""
     return [
@@ -154,6 +157,7 @@ def summarize_cv_results(cv_results: dict) -> list[dict]:
         }
         for i in range(len(cv_results["params"]))
     ]
+
 
 def tune_candidate(
     name: str,
@@ -189,6 +193,7 @@ def tune_candidate(
         "trials": summarize_cv_results(search.cv_results_),
     }
     return search.best_estimator_, summary
+
 
 def main() -> None:
     if not RAW_DATA_PATH.exists():
@@ -229,7 +234,7 @@ def main() -> None:
         y_train,
         test_size=CALIBRATION_SIZE,
         stratify=y_train,
-        random_state=RANDOM_STATE
+        random_state=RANDOM_STATE,
     )
     # tuned_estimator was refit by RandomizedSearchCV on all of X_train/y_train; clone
     # it back to an unfit pipeline so the fit/calibration split stays disjoint, same as
@@ -239,7 +244,9 @@ def main() -> None:
     uncalibrated_proba = best_pipeline.predict_proba(X_test)[:, 1]
 
     print(f"Calibrating {best_model_name} with isotonic regression ...")
-    calibrated = CalibratedClassifierCV(FrozenEstimator(best_pipeline), method="isotonic")
+    calibrated = CalibratedClassifierCV(
+        FrozenEstimator(best_pipeline), method="isotonic"
+    )
     calibrated.fit(X_calib, y_calib)
     calibrated_proba = calibrated.predict_proba(X_test)[:, 1]
 
@@ -278,7 +285,9 @@ def main() -> None:
         "model_type": best_model_name,
         "model_version": __version__,
         "trained_at": metrics["trained_at"],
-        "metrics": {"test": metrics["test_calibrated"],},
+        "metrics": {
+            "test": metrics["test_calibrated"],
+        },
     }
     joblib.dump(artifact, MODEL_PATH, compress=3)
     METRICS_PATH.write_text(json.dumps(metrics, indent=2))

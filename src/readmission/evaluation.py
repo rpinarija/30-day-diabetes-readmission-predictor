@@ -45,7 +45,9 @@ def no_skill_baselines(y_true) -> dict[str, float]:
     }
 
 
-def incumbent_baseline(X: pd.DataFrame, y_true, column: str = "number_inpatient") -> dict[str, float]:
+def incumbent_baseline(
+    X: pd.DataFrame, y_true, column: str = "number_inpatient"
+) -> dict[str, float]:
     """Reference baseline scores for an incumbent model"""
     scores = X[column].to_numpy(dtype=float)
     result = {
@@ -62,13 +64,13 @@ def incumbent_baseline(X: pd.DataFrame, y_true, column: str = "number_inpatient"
 
 def lift_table(
     y_true, proba, fractions: tuple[float, ...] = DEFAULT_TOP_PROPORTIONS
-    ) -> list[dict[str, float]]:
+) -> list[dict[str, float]]:
     """Lift table for a set of predicted probabilities."""
     proba = np.asarray(proba, dtype=float)
     y_sorted = np.asarray(y_true)[np.argsort(-proba)]
     prevalence = y_sorted.mean()
     total_positives = max(int(y_sorted.sum()), 1)
-    
+
     rows = []
     for fraction in fractions:
         n = max(int(len(y_sorted) * fraction), 1)
@@ -84,6 +86,7 @@ def lift_table(
             }
         )
     return rows
+
 
 def _quantile_bins(proba: np.ndarray, n_bins: int) -> list[np.ndarray]:
     """Return the bin index for each probability based on quantiles."""
@@ -110,13 +113,12 @@ def expected_calibration_error(y_true, proba, n_bins: int = 10) -> float:
     return float(error)
 
 
-
 def murphy_decomposition(y_true, proba, n_bins: int = 10) -> dict[str, float]:
     """Decompose the Murphy score into its components: reliability, resolution, and uncertainty."""
     proba = np.asarray(proba, dtype=float)
     y_true = np.asarray(y_true)
     base_rate = y_true.mean()
-    
+
     reliability = resolution = 0.0
     for mask in _quantile_bins(proba, n_bins):
         weight = mask.sum() / len(proba)
@@ -152,14 +154,10 @@ def risk_tier_summary(y_true, proba) -> list[dict[str, float]]:
 
 
 def calibration_curve_plot(
-    y_true, 
-    uncalibrated_proba, 
-    calibrated_proba, 
-    path: Path, 
-    n_bins: int = 10
+    y_true, uncalibrated_proba, calibrated_proba, path: Path, n_bins: int = 10
 ) -> None:
     """Calibration curve for a set of predicted probabilities."""
- 
+
     fig, (curve_ax, hist_ax) = plt.subplots(2, 1, figsize=(6, 8), sharex=True)
     curve_ax.plot([0, 1], [0, 1], "k--", label="Perfect Calibrated")
     for label, proba, color in (
@@ -181,7 +179,9 @@ def calibration_curve_plot(
     )
     curve_ax.legend(loc="upper right")
     curve_ax.grid(alpha=0.3)
-    hist_ax.set(xlim=(0, upper), xlabel="Predicted Probability", ylabel="Count", yscale="log")
+    hist_ax.set(
+        xlim=(0, upper), xlabel="Predicted Probability", ylabel="Count", yscale="log"
+    )
     hist_ax.grid(alpha=0.3)
     fig.tight_layout()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -226,6 +226,7 @@ def format_summary(metrics: dict) -> str:
             f"{row['share_of_cohort']:>10.1%}{rendered:>16}"
         )
     return "\n".join(lines)
+
 
 __all__ = [
     "RISK_TIER_ORDER",

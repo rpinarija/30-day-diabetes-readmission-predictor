@@ -24,6 +24,7 @@ RISK_TIER_THRESHOLDS = {
     "high": 0.20,
 }
 
+
 def assign_risk_tier(probability: float) -> str:
     """Assign a risk tier based on predicted probability"""
     if probability >= RISK_TIER_THRESHOLDS["high"]:
