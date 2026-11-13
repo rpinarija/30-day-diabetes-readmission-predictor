@@ -38,6 +38,7 @@ from readmission import __version__
 from readmission.config import (
     CALIBRATION_PLOT_PATH,
     CALIBRATION_SIZE,
+    FEATURE_IMPORTANCE_PLOT_PATH,
     METRICS_PATH,
     MODEL_DIR,
     MODEL_PATH,
@@ -58,6 +59,13 @@ from readmission.evaluation import (
     risk_tier_summary,
     subgroup_columns,
     subgroup_metrics,
+)
+from readmission.explainability import (
+    contribution_importance,
+    feature_contributions,
+    feature_importance_plot,
+    format_importance,
+    permutation_importance_table,
 )
 from readmission.preprocessing import (
     build_preprocessing_pipeline,
@@ -293,7 +301,17 @@ def main() -> None:
             },
         },
     }
+
+    print("Computing feature importance ...")
+    contributions, _ = feature_contributions(best_pipeline, X_test)
+    metrics["explainability"] = {
+        "contribution_importance": contribution_importance(contributions, X_test),
+        "permutation_importance": permutation_importance_table(
+            calibrated, X_test, y_test, random_state=RANDOM_STATE
+        ),
+    }
     print(format_summary(metrics))
+    print(format_importance(metrics["explainability"]))
 
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
     artifact = {
@@ -310,6 +328,7 @@ def main() -> None:
     calibration_curve_plot(
         y_test, uncalibrated_proba, calibrated_proba, CALIBRATION_PLOT_PATH
     )
+    feature_importance_plot(metrics["explainability"], FEATURE_IMPORTANCE_PLOT_PATH)
     tuning_record = {
         "trained_at": metrics["trained_at"],
         "model_version": __version__,
@@ -322,6 +341,7 @@ def main() -> None:
     print(f"\nSaved model to {MODEL_PATH}")
     print(f"Saved metrics to {METRICS_PATH}")
     print(f"Saved calibration curve to {CALIBRATION_PLOT_PATH}")
+    print(f"Saved feature importance plot to {FEATURE_IMPORTANCE_PLOT_PATH}")
     print(f"Appended tuning trials to {TUNING_LOG_PATH}")
 
 

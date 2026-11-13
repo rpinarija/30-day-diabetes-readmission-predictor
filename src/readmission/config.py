@@ -11,6 +11,7 @@ MODEL_DIR = PROJECT_ROOT / "models"
 MODEL_PATH = MODEL_DIR / "model.joblib"
 METRICS_PATH = MODEL_DIR / "metrics.json"
 CALIBRATION_PLOT_PATH = MODEL_DIR / "reliability.png"
+FEATURE_IMPORTANCE_PLOT_PATH = MODEL_DIR / "feature_importance.png"
 TUNING_LOG_PATH = MODEL_DIR / "tuning_runs.jsonl"
 
 RANDOM_STATE = 42
