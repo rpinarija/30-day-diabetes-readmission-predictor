@@ -38,7 +38,7 @@ curl -X POST http://127.0.0.1:8000/predict -H "Content-Type: application/json" -
 }'
 ```
 
-The response is a calibrated risk, a tier (`low` / `moderate` / `high`), and warnings for any input outside the range seen in training. `GET /health` and `GET /model-info` report service status and model metadata.
+The response is a calibrated risk, a tier (`low` / `moderate` / `high`), the top 3 factors behind this patient's score (plain-language label, the patient's value, and whether it raises or lowers risk), and warnings for any input outside the range seen in training. The factors describe the model's reasoning, not clinical causes. `GET /health` and `GET /model-info` report service status and model metadata.
 
 ## Data
 

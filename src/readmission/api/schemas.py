@@ -178,11 +178,32 @@ class Encounter(BaseModel):
         }
 
 
+class Factor(BaseModel):
+    feature: str = Field(description="Model feature name.")
+    label: str = Field(description="Plain-language name for care teams.")
+    value: str | int | float = Field(
+        description="This patient's value for the feature."
+    )
+    effect: Literal["raises risk", "lowers risk"]
+    log_odds_contribution: float = Field(
+        description=(
+            "SHAP contribution to the pre-calibration log-odds. Use it to rank factors, "
+            "not as percentage points of risk."
+        )
+    )
+
+
 class Prediction(BaseModel):
     readmission_risk: float = Field(
         description="Calibrated probability of readmission within 30 days."
     )
     risk_tier: Literal["low", "moderate", "high"]
+    top_factors: list[Factor] = Field(
+        description=(
+            "The features that moved this patient's score the most, largest first. "
+            "They describe the model's reasoning, not clinical causes."
+        )
+    )
     warnings: list[str] = Field(
         description="Inputs outside the training data's range; the prediction extrapolates."
     )

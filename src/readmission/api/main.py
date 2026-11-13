@@ -15,6 +15,7 @@ from readmission import __version__
 from readmission.api.schemas import Encounter, Health, ModelInfo, Prediction
 from readmission.artifact import load_artifact
 from readmission.config import MODEL_PATH, assign_risk_tier
+from readmission.explainability import explained_pipeline, top_factors
 from readmission.preprocessing import NUMERIC_FEATURES, engineer_features
 
 MODEL_PATH_ENV = "READMISSION_MODEL_PATH"
@@ -46,9 +47,11 @@ def create_app(model_path: Path | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        # Fail fast: if the model can't be loaded, the service doesn't start. A service
-        # that reports itself up but can't predict hides a broken deployment.
+        # Fail fast: if the model can't be loaded or explained, the service doesn't
+        # start. A service that reports itself up but can't do its job hides a broken
+        # deployment.
         app.state.artifact = load_artifact(path)
+        app.state.explained_pipeline = explained_pipeline(app.state.artifact["model"])
         yield
 
     app = FastAPI(
@@ -87,6 +90,7 @@ def create_app(model_path: Path | None = None) -> FastAPI:
         return Prediction(
             readmission_risk=risk,
             risk_tier=assign_risk_tier(risk, artifact["risk_tier_thresholds"]),
+            top_factors=top_factors(request.app.state.explained_pipeline, features),
             warnings=range_warnings(features, artifact["input_ranges"]),
             model_version=artifact["model_version"],
         )

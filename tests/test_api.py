@@ -7,6 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.frozen import FrozenEstimator
+from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from xgboost import XGBClassifier
 
@@ -14,6 +15,7 @@ from readmission.api.main import create_app
 from readmission.api.schemas import Encounter
 from readmission.artifact import build_artifact, load_artifact
 from readmission.config import assign_risk_tier
+from readmission.explainability import explained_pipeline, top_factors
 from readmission.preprocessing import (
     build_preprocessing_pipeline,
     engineer_features,
@@ -199,6 +201,35 @@ class TestPredict:
         ).json()
         assert any("number_emergency" in w for w in body["warnings"])
 
+    def test_response_explains_the_score(self, client):
+        factors = client.post("/predict", json=encounter_payload()).json()[
+            "top_factors"
+        ]
+        assert len(factors) == 3
+        assert all(
+            f["label"] and f["effect"] in {"raises risk", "lowers risk"}
+            for f in factors
+        )
+
+    def test_factors_match_explaining_the_model_directly(self, client, artifact_path):
+        """Same no-skew guarantee as the risk score, for the explanation."""
+        pipeline = explained_pipeline(load_artifact(artifact_path)["model"])
+        raw = pd.DataFrame([make_raw_encounter(number_inpatient=4)])
+        expected = top_factors(pipeline, engineer_features(raw))
+        body = client.post(
+            "/predict", json=encounter_payload(number_inpatient=4)
+        ).json()
+        assert body["top_factors"] == pytest.approx(expected)
+
+    def test_planted_signal_is_the_top_factor(self, client):
+        body = client.post(
+            "/predict", json=encounter_payload(number_inpatient=5)
+        ).json()
+        top = body["top_factors"][0]
+        assert top["feature"] == "number_inpatient"
+        assert top["label"] == "Inpatient stays in the prior year"
+        assert top["effect"] == "raises risk"
+
 
 # ---------------------------------------------------------------------------
 # Request validation
@@ -285,6 +316,26 @@ class TestStartup:
         joblib.dump(artifact, path)
         with pytest.raises(ValueError, match="missing"):
             load_artifact(path)
+
+    def test_model_that_cannot_be_explained_fails_fast(self, artifact_path, tmp_path):
+        """A logistic-regression model can't be explained one patient at a time, so the
+        service refuses to start rather than return meaningless explanations."""
+        raw = make_synthetic_cohort(n=200)
+        X, y = engineer_features(raw), make_binary_target(raw["readmitted"])
+        pipeline = Pipeline(
+            steps=[
+                ("preprocessing", build_preprocessing_pipeline()),
+                ("model", LogisticRegression(max_iter=1000)),
+            ]
+        ).fit(X, y)
+        artifact = load_artifact(artifact_path)
+        artifact["model"] = CalibratedClassifierCV(
+            FrozenEstimator(pipeline), method="sigmoid"
+        ).fit(X, y)
+        path = tmp_path / "logistic.joblib"
+        joblib.dump(artifact, path)
+        with pytest.raises(TypeError, match="XGBoost"), TestClient(create_app(path)):
+            pass
 
     def test_artifact_trained_on_other_features_is_rejected(
         self, artifact_path, tmp_path

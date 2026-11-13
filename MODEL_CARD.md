@@ -96,6 +96,7 @@ Both methods agree on the top drivers, and all of them are known at discharge (n
 - Discharge disposition dominates: shuffling it costs 0.064 ROC-AUC, about 43% of the model's skill above chance.
 - Medication-change flags, insulin status, and the HbA1c result add no measurable ranking accuracy (the HbA1c finding is notable, since the source paper studied it).
 - Contributions are SHAP values on the pre-calibration score; calibration is monotone, so rankings and directions carry over.
+- **Per patient:** the API returns the top 3 factors behind each score, with plain-language labels. They describe what the model reacts to, **not clinical causes**. For example, an HbA1c result above 8 *lowers* predicted risk, likely because patients who were tested at all received more attentive diabetes care, which is the source paper's finding. A high HbA1c is not protective. Care teams should use the factors to understand and sanity-check a score, not as treatment guidance.
 
 ![Feature importance](docs/model_card/feature_importance.png)
 
