@@ -1,8 +1,8 @@
 # 30-Day Readmission Risk - Diabetes Cohort
 
-Predicts unplanned 30-day hospital readmission risk for diabetic inpatients, so discharge-planning teams can prioritize follow-up for the patients most likely to have an early readmission.
+Predicts 30-day hospital readmission risk for diabetic inpatients at discharge, so discharge-planning teams can prioritize follow-up for the patients most likely to have an early readmission.
 
-**Status: in progress.** EDA, the preprocessing pipeline, and the training/evaluation pipeline are done and tested. The FastAPI serving layer and CI/deployment are not yet implemented (see [Repo structure](#repo-structure)).
+**Status: in progress.** EDA, preprocessing, training, evaluation (including subgroup, explainability, and threshold analysis), and CI are done and tested. The **[model card](MODEL_CARD.md)** documents intended use, performance, fairness results, and limitations. The FastAPI serving layer and deployment are not yet implemented (see [Repo structure](#repo-structure)).
 
 
 ## Quickstart
@@ -36,9 +36,12 @@ Inference is not runnable yet - `src/readmission/api/` is still empty scaffoldin
 ## Repo structure
 
 ```
+├── MODEL_CARD.md         # intended use, performance, fairness, limitations
+├── .github/workflows/    # CI: lint, format check, and tests on every push and PR
 ├── data/
 │   ├── raw/              # downloaded via scripts/download_data.py, gitignored
 │   ├── processed/        # pipeline output, gitignored
+├── docs/model_card/      # figures referenced by the model card (snapshot of one training run)
 ├── models/               # training outputs (model, metrics, plots), gitignored
 ├── notebooks/
 │   ├── 01_eda.ipynb      # EDA + decision log - reasoning behind every decision
@@ -48,9 +51,10 @@ Inference is not runnable yet - `src/readmission/api/` is still empty scaffoldin
 │   ├── config.py         # paths, constants, risk-tier thresholds
 │   ├── preprocessing.py  # cleaning, feature engineering, sklearn ColumnTransformer
 │   ├── train.py          # model selection, tuning, calibration, artifact saving
-│   ├── evaluation.py     # metrics, baselines, lift, calibration diagnostics
+│   ├── evaluation.py     # metrics, baselines, lift, calibration, subgroups, capacity, decision curve
+│   ├── explainability.py # SHAP contributions and permutation importance
 │   ├── api/              # empty - FastAPI serving layer not yet built
-├── tests/                # pytest suite for preprocessing and evaluation (API tests pending)
+├── tests/                # pytest suite for preprocessing, evaluation, and explainability (API tests pending)
 ```
 
 ## Approach
