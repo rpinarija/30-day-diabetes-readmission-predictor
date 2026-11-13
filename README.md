@@ -8,8 +8,8 @@ Predicts unplanned 30-day hospital readmission risk for diabetic inpatients, so 
 ## Quickstart
 
 ```bash
-# 1. Install dependencies (requires Python 3.13, uv: https://docs.astral.sh/uv/)
-uv sync --extra dev
+# 1. Install dependencies, including dev tools (requires Python 3.13, uv: https://docs.astral.sh/uv/)
+uv sync
 
 # 2. Download the raw data (pulled from UCI's public archive)
 uv run python scripts/download_data.py
@@ -97,7 +97,8 @@ Full metrics are written to `models/metrics.json`, and the reliability diagram t
 
 ## Reproducibility
 
-- Dependencies are pinned via `uv.lock`; `uv sync --extra dev` reproduces the exact environment.
+- Dependencies are pinned via `uv.lock`; `uv sync` reproduces the exact environment. Runtime dependencies are kept separate from dev tools (pytest, ruff, Jupyter), so `uv sync --no-dev` installs only what the code needs to run.
+- CI (GitHub Actions) runs lint and the test suite on every push and pull request.
 - `RANDOM_STATE = 42` is centralized in `src/readmission/config.py` and used for every split, CV fold, search, and model seed.
 - Each training run saves the calibrated model with its version and timestamp (`models/model.joblib`), all metrics (`models/metrics.json`), and appends every tuning trial to `models/tuning_runs.jsonl`. There is no external experiment tracker yet.
 
