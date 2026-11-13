@@ -29,6 +29,7 @@ def imbalanced_labels():
 # No-skill baselines
 # ---------------------------------------------------------------------------
 
+
 class TestNoSkillBaselines:
     def test_balanced_case_has_known_values(self):
         """At p=0.5: accuracy 0.5, Brier 0.25, log loss ln(2)."""
@@ -41,8 +42,8 @@ class TestNoSkillBaselines:
         baselines = no_skill_baselines(imbalanced_labels)
         assert baselines["prevalence"] == pytest.approx(0.10)
         assert baselines["accuracy"] == pytest.approx(0.90)  # predict majority
-        assert baselines["pr_auc"] == pytest.approx(0.10)    # equals prevalence
-        assert baselines["brier"] == pytest.approx(0.09)     # p(1-p)
+        assert baselines["pr_auc"] == pytest.approx(0.10)  # equals prevalence
+        assert baselines["brier"] == pytest.approx(0.09)  # p(1-p)
 
     def test_roc_auc_floor_is_prevalence_independent(self, imbalanced_labels):
         """The reason ROC-AUC is comparable across datasets and PR-AUC is not."""
@@ -60,6 +61,7 @@ class TestNoSkillBaselines:
 # ---------------------------------------------------------------------------
 # Lift
 # ---------------------------------------------------------------------------
+
 
 class TestLiftTable:
     def test_perfect_ranker_achieves_maximum_lift(self, imbalanced_labels):
@@ -88,6 +90,7 @@ class TestLiftTable:
 # ---------------------------------------------------------------------------
 # Calibration
 # ---------------------------------------------------------------------------
+
 
 class TestExpectedCalibrationError:
     def test_perfectly_calibrated_constant_scores_zero(self, imbalanced_labels):
@@ -133,7 +136,9 @@ class TestMurphyDecomposition:
         proba = np.concatenate([np.full(500, 0.40), np.full(500, 0.08)])
 
         parts = murphy_decomposition(y_true, proba, n_bins=2)
-        reconstructed = parts["reliability"] - parts["resolution"] + parts["uncertainty"]
+        reconstructed = (
+            parts["reliability"] - parts["resolution"] + parts["uncertainty"]
+        )
         assert reconstructed == pytest.approx(brier_score_loss(y_true, proba), abs=1e-9)
         assert parts["reliability"] > 0
 
@@ -147,6 +152,7 @@ class TestMurphyDecomposition:
 # Risk tiers
 # ---------------------------------------------------------------------------
 
+
 class TestAssignRiskTier:
     """Tier boundaries are a product contract — they decide who gets an
     intervention — so the edges are pinned explicitly."""
@@ -156,9 +162,9 @@ class TestAssignRiskTier:
         [
             (0.0, "low"),
             (0.099, "low"),
-            (0.10, "moderate"),    # threshold is inclusive
+            (0.10, "moderate"),  # threshold is inclusive
             (0.199, "moderate"),
-            (0.20, "high"),        # threshold is inclusive
+            (0.20, "high"),  # threshold is inclusive
             (1.0, "high"),
         ],
     )
@@ -190,19 +196,28 @@ class TestRiskTierSummary:
 
     def test_empty_tier_reports_none_not_nan(self, imbalanced_labels):
         """Every patient below 10% -> moderate and high tiers are empty."""
-        rows = {r["tier"]: r for r in risk_tier_summary(imbalanced_labels, np.full(1000, 0.01))}
+        rows = {
+            r["tier"]: r
+            for r in risk_tier_summary(imbalanced_labels, np.full(1000, 0.01))
+        }
         assert rows["low"]["n_patients"] == 1000
         assert rows["high"]["observed_readmission_rate"] is None
 
     def test_tier_assignment_respects_thresholds(self, imbalanced_labels):
-        proba = np.concatenate([np.full(500, 0.05), np.full(300, 0.15), np.full(200, 0.25)])
-        rows = {r["tier"]: r["n_patients"] for r in risk_tier_summary(imbalanced_labels, proba)}
+        proba = np.concatenate(
+            [np.full(500, 0.05), np.full(300, 0.15), np.full(200, 0.25)]
+        )
+        rows = {
+            r["tier"]: r["n_patients"]
+            for r in risk_tier_summary(imbalanced_labels, proba)
+        }
         assert rows == {"low": 500, "moderate": 300, "high": 200}
 
 
 # ---------------------------------------------------------------------------
 # Incumbent baseline + headline metrics
 # ---------------------------------------------------------------------------
+
 
 class TestIncumbentBaseline:
     def test_scores_a_single_column_without_a_model(self, imbalanced_labels):

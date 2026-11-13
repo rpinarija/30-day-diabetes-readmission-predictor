@@ -36,5 +36,9 @@ jobs:
       - name: Lint
         run: uv run ruff check .
 
+      # Fails if any file isn't formatted; fix locally with `uv run ruff format .`
+      - name: Check formatting
+        run: uv run ruff format --check .
+
       - name: Test
         run: uv run pytest -q

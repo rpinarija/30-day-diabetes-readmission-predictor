@@ -45,11 +45,28 @@ FEATURE_COLUMNS = NUMERIC_FEATURES + CATEGORICAL_FEATURES
 # All 23 diabetes-medications columns in the dataset
 # Possible values per column are: 'No', 'Steady', 'Up', 'Down'
 MEDICATION_COLUMNS = [
-    "metformin", "repaglinide", "nateglinide", "chlorpropamide", "glimepiride",
-    "acetohexamide", "glipizide", "glyburide", "tolbutamide", "pioglitazone",
-    "rosiglitazone", "acarbose", "miglitol", "troglitazone", "tolazamide",
-    "examide", "citoglipton", "insulin", "glyburide-metformin",
-    "glipizide-metformin", "glimepiride-pioglitazone", "metformin-rosiglitazone",
+    "metformin",
+    "repaglinide",
+    "nateglinide",
+    "chlorpropamide",
+    "glimepiride",
+    "acetohexamide",
+    "glipizide",
+    "glyburide",
+    "tolbutamide",
+    "pioglitazone",
+    "rosiglitazone",
+    "acarbose",
+    "miglitol",
+    "troglitazone",
+    "tolazamide",
+    "examide",
+    "citoglipton",
+    "insulin",
+    "glyburide-metformin",
+    "glipizide-metformin",
+    "glimepiride-pioglitazone",
+    "metformin-rosiglitazone",
     "metformin-pioglitazone",
 ]
 
@@ -60,13 +77,22 @@ EXPIRED_OR_HOSPICE_DISPOSITIONS = frozenset({11, 13, 14, 19, 20, 21})
 # Mapping of age ranges to their midpoints for numerical representation
 # Numeric values help preserve the model's ability to learn from the progression of age
 AGE_MIDPOINTS = {
-    "[0-10)": 5, "[10-20)": 15, "[20-30)": 25, "[30-40)": 35, "[40-50)": 45,
-    "[50-60)": 55, "[60-70)": 65, "[70-80)": 75, "[80-90)": 85, "[90-100)": 95,
+    "[0-10)": 5,
+    "[10-20)": 15,
+    "[20-30)": 25,
+    "[30-40)": 35,
+    "[40-50)": 45,
+    "[50-60)": 55,
+    "[60-70)": 65,
+    "[70-80)": 75,
+    "[80-90)": 85,
+    "[90-100)": 95,
 }
 
 # ----------------------------------------------------------------------------------------
 # Target
 # ----------------------------------------------------------------------------------------
+
 
 def make_binary_target(readmitted: pd.Series) -> pd.Series:
     """
@@ -80,8 +106,10 @@ def make_binary_target(readmitted: pd.Series) -> pd.Series:
 # Row-level mapping functions
 # ----------------------------------------------------------------------------------------
 
+
 def map_age_to_midpoint(age: pd.Series) -> pd.Series:
     return age.map(AGE_MIDPOINTS)
+
 
 def map_icd9_to_category(code: object) -> str:
     """
@@ -98,7 +126,7 @@ def map_icd9_to_category(code: object) -> str:
         value = float(text)
     except ValueError:
         return "other"
-    chapter = int(value) # Convert subchapter to chapter by truncating decimal places
+    chapter = int(value)  # Convert subchapter to chapter by truncating decimal places
     if 390 <= chapter <= 459 or chapter == 785:
         return "circulatory"
     if 460 <= chapter <= 519 or chapter == 786:
@@ -190,10 +218,11 @@ def group_medical_specialty(specialty: object) -> str:
 # DataFrame-level transformations
 # -----------------------------------------------------------------------------------------
 
+
 def clean_encounters(df: pd.DataFrame) -> pd.DataFrame:
     """
     Filter out encounters that are not relevant for predicting readmission. This includes:
-    
+
     1. Convert '?' values to NaN.
     2. Drop encounters where the patient has died or is in hospice care.
     3. Keep only the first encounter for each patient, to preserve independence of samples and avoid data leakage.
@@ -201,7 +230,9 @@ def clean_encounters(df: pd.DataFrame) -> pd.DataFrame:
     """
     out = df.replace("?", np.nan)
     out = out[~out["discharge_disposition_id"].isin(EXPIRED_OR_HOSPICE_DISPOSITIONS)]
-    out = out.sort_values("encounter_id").drop_duplicates(subset="patient_nbr", keep="first")
+    out = out.sort_values("encounter_id").drop_duplicates(
+        subset="patient_nbr", keep="first"
+    )
     out = out[out["gender"] != "Unknown/Invalid"]
     return out.reset_index(drop=True)
 
@@ -212,13 +243,13 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     """
     out = df.copy()
     out = out.replace("?", np.nan)
-    
+
     # Treat medications as 'No' if they are missing
     for col in MEDICATION_COLUMNS:
         if col not in out.columns:
             out[col] = "No"
         out[col] = out[col].fillna("No")
-    
+
     # Engineered numeric features
     out["age_midpoint"] = out["age"].map(AGE_MIDPOINTS)
     out["service_utilization"] = (
@@ -227,24 +258,28 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     meds = out[MEDICATION_COLUMNS]
     out["n_medication_changes"] = meds.isin(["Up", "Down"]).sum(axis=1)
     out["n_active_medications"] = (meds != "No").sum(axis=1)
-    
+
     # Grouped categorical features
     out["admission_type"] = out["admission_type_id"].map(group_admission_type)
-    out["discharge_disposition"] = out["discharge_disposition_id"].map(group_discharge_disposition)
+    out["discharge_disposition"] = out["discharge_disposition_id"].map(
+        group_discharge_disposition
+    )
     out["admission_source"] = out["admission_source_id"].map(group_admission_source)
-    out["medical_specialty_group"] = out.get("medical_specialty", pd.Series(np.nan, index=out.index)).map(group_medical_specialty)
-        
+    out["medical_specialty_group"] = out.get(
+        "medical_specialty", pd.Series(np.nan, index=out.index)
+    ).map(group_medical_specialty)
+
     for diag_col in ("diag_1", "diag_2", "diag_3"):
         source = out.get(diag_col, pd.Series(np.nan, index=out.index))
         out[f"{diag_col}_category"] = source.map(map_icd9_to_category)
-    
+
     out["race"] = out["race"].fillna("missing")
     # "None" here indicates the lab was not ordered
     out["max_glu_serum"] = out["max_glu_serum"].fillna("None")
     out["A1Cresult"] = out["A1Cresult"].fillna("None")
-    
+
     return out[FEATURE_COLUMNS]
-    
+
 
 def build_preprocessing_pipeline() -> ColumnTransformer:
     """
@@ -253,21 +288,29 @@ def build_preprocessing_pipeline() -> ColumnTransformer:
     Categorical features are imputed with a constant value and one-hot encoded, ignoring rare categories.
     min_frequency=50 ensures ultra rare categories are placed into an "infrequent" bucket.
     """
-    numeric_pipeline = Pipeline(steps=[
-        ("imputer", SimpleImputer(strategy="median")),
-        ("scaler", StandardScaler()),
-    ])
-    
-    categorical_pipeline = Pipeline(steps=[
-        ("imputer", SimpleImputer(strategy="constant", fill_value="missing")),
-        ("onehot", OneHotEncoder(handle_unknown="ignore", min_frequency=50, sparse_output=False)),
-    ])
-    
+    numeric_pipeline = Pipeline(
+        steps=[
+            ("imputer", SimpleImputer(strategy="median")),
+            ("scaler", StandardScaler()),
+        ]
+    )
+
+    categorical_pipeline = Pipeline(
+        steps=[
+            ("imputer", SimpleImputer(strategy="constant", fill_value="missing")),
+            (
+                "onehot",
+                OneHotEncoder(
+                    handle_unknown="ignore", min_frequency=50, sparse_output=False
+                ),
+            ),
+        ]
+    )
+
     return ColumnTransformer(
         transformers=[
             ("numeric", numeric_pipeline, NUMERIC_FEATURES),
             ("categorical", categorical_pipeline, CATEGORICAL_FEATURES),
         ],
-        verbose_feature_names_out=False
+        verbose_feature_names_out=False,
     )
-    
