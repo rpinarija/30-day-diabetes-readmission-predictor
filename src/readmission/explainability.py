@@ -37,6 +37,36 @@ INK_PRIMARY = "#0b0b0b"
 INK_SECONDARY = "#52514e"
 GRID_COLOR = "#e4e3df"
 
+# Plain-language names for per-patient explanations shown to care teams.
+FEATURE_LABELS = {
+    "age_midpoint": "Age",
+    "time_in_hospital": "Length of stay (days)",
+    "num_lab_procedures": "Lab procedures this stay",
+    "num_procedures": "Procedures this stay",
+    "num_medications": "Medications this stay",
+    "number_outpatient": "Outpatient visits in the prior year",
+    "number_emergency": "Emergency visits in the prior year",
+    "number_inpatient": "Inpatient stays in the prior year",
+    "number_diagnoses": "Number of diagnoses",
+    "service_utilization": "Total hospital visits in the prior year",
+    "n_medication_changes": "Diabetes medication dose changes",
+    "n_active_medications": "Diabetes medications in use",
+    "gender": "Gender",
+    "admission_type": "Admission type",
+    "discharge_disposition": "Discharge destination",
+    "admission_source": "Admission source",
+    "medical_specialty_group": "Admitting specialty",
+    "diag_1_category": "Primary diagnosis group",
+    "diag_2_category": "Secondary diagnosis group",
+    "diag_3_category": "Additional diagnosis group",
+    "max_glu_serum": "Glucose serum test result",
+    "A1Cresult": "HbA1c test result",
+    "insulin": "Insulin",
+    "metformin": "Metformin",
+    "change": "Diabetes medications changed",
+    "diabetesMed": "On diabetes medication",
+}
+
 
 def source_feature(output_name: str) -> str:
     """Map a preprocessed column name (e.g. 'gender_Male') back to its input feature."""
@@ -79,6 +109,52 @@ def feature_contributions(
     per_column = pd.DataFrame(values, columns=names, index=X.index)
     per_feature = per_column.T.groupby([source_feature(n) for n in names]).sum().T
     return per_feature[FEATURE_COLUMNS], np.asarray(base_value)
+
+
+def explained_pipeline(calibrated) -> Pipeline:
+    """The fitted pipeline inside CalibratedClassifierCV(FrozenEstimator(pipeline)).
+
+    Raises if the model can't be explained one patient at a time: the logistic-regression
+    contributions above are measured against the mean of the rows passed in, which for a
+    single patient is the patient itself (every contribution would be zero). XGBoost's
+    TreeSHAP needs no reference cohort, so per-patient explanations require XGBoost.
+    """
+    if len(calibrated.calibrated_classifiers_) != 1:
+        raise ValueError("Expected exactly one calibrated model to explain")
+    estimator = calibrated.calibrated_classifiers_[0].estimator
+    pipeline = getattr(estimator, "estimator", estimator)  # unwrap FrozenEstimator
+    if not isinstance(pipeline.named_steps["model"], xgb.XGBClassifier):
+        raise TypeError(
+            "Per-patient explanations require an XGBoost model; "
+            f"got {type(pipeline.named_steps['model']).__name__}"
+        )
+    return pipeline
+
+
+def top_factors(pipeline: Pipeline, features: pd.DataFrame, n: int = 3) -> list[dict]:
+    """The n features that moved one patient's score the most, largest first.
+
+    These describe the model's reasoning, not clinical causes. Contributions are in
+    log-odds before calibration, so read the ranking and direction, not the magnitude.
+    """
+    if len(features) != 1:
+        raise ValueError("top_factors explains exactly one patient")
+    contributions, _ = feature_contributions(pipeline, features)
+    row = contributions.iloc[0]
+    values = features.iloc[0]
+    factors = []
+    for feature in row.abs().sort_values(ascending=False, kind="stable").index[:n]:
+        value = values[feature]
+        factors.append(
+            {
+                "feature": feature,
+                "label": FEATURE_LABELS[feature],
+                "value": value.item() if hasattr(value, "item") else str(value),
+                "effect": "raises risk" if row[feature] > 0 else "lowers risk",
+                "log_odds_contribution": float(row[feature]),
+            }
+        )
+    return factors
 
 
 def contribution_importance(contributions: pd.DataFrame, X: pd.DataFrame) -> list[dict]:
@@ -199,10 +275,13 @@ def feature_importance_plot(explainability: dict, path: Path, top_n: int = 15) -
 
 
 __all__ = [
+    "FEATURE_LABELS",
     "contribution_importance",
+    "explained_pipeline",
     "feature_contributions",
     "feature_importance_plot",
     "format_importance",
     "permutation_importance_table",
     "source_feature",
+    "top_factors",
 ]
