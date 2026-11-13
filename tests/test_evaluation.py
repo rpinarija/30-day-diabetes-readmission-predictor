@@ -290,13 +290,19 @@ class TestAgeBand:
 
 
 class TestSubgroupColumns:
-    def test_uses_engineered_feature_columns(self, raw_df):
-        from readmission.preprocessing import clean_encounters, engineer_features
+    def test_combines_features_and_audit_attributes(self, raw_df):
+        from readmission.preprocessing import (
+            audit_attributes,
+            clean_encounters,
+            engineer_features,
+        )
 
-        X = engineer_features(clean_encounters(raw_df))
-        columns = subgroup_columns(X)
+        cleaned = clean_encounters(raw_df)
+        X = engineer_features(cleaned)
+        columns = subgroup_columns(X, audit_attributes(cleaned))
         assert set(columns) == {"race", "gender", "age_band"}
         assert all(len(col) == len(X) for col in columns.values())
+        assert "race" not in X.columns  # race comes from the audit attributes
 
 
 class TestSubgroupMetrics:

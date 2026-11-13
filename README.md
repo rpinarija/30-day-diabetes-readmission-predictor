@@ -83,14 +83,15 @@ The ~9% positive rate rules out accuracy as meaningful (predicting "no readmissi
 
 | Metric | No-skill | Incumbent (`number_inpatient`) | Model (calibrated) |
 |---|---|---|---|
-| ROC-AUC | 0.500 | 0.552 | **0.652** |
-| PR-AUC | 0.090 | 0.116 | **0.164** |
-| Brier | 0.0817 | - | **0.0794** |
-| Lift @ top 10% | 1.00x | 1.81x | **2.20x** |
+| ROC-AUC | 0.500 | 0.552 | **0.649** |
+| PR-AUC | 0.090 | 0.116 | **0.162** |
+| Brier | 0.0817 | - | **0.0795** |
+| Lift @ top 10% | 1.00x | 1.81x | **2.18x** |
 
-- **Ranking:** the top 10% of patients by predicted risk have a 19.7% readmission rate (2.2x the base rate), and the top 5% have 24.0% (2.7x).
-- **Calibration:** sigmoid calibration cut expected calibration error from 0.372 to 0.006 with no loss in ROC-AUC, so the predicted probabilities can be read as real risks. The highest predicted risk is 34.5%.
-- **Risk tiers:** cutoffs are sized to follow-up capacity (high ≥ 0.17, moderate ≥ 0.12; reasoning in `src/readmission/config.py`). The high tier flags ~6 per 100 discharges with a 23.0% observed readmission rate; high + moderate flag ~22 per 100 and catch 42% of readmissions. Low-tier patients (78%) readmit at 6.7%. A decision curve confirms the model beats following up with everyone or no one at both cutoffs.
+- **Ranking:** the top 10% of patients by predicted risk have a 19.6% readmission rate (2.2x the base rate), and the top 5% have 23.7% (2.6x).
+- **Calibration:** sigmoid calibration cut expected calibration error from 0.372 to 0.009 with no loss in ROC-AUC, so the predicted probabilities can be read as real risks. The highest predicted risk is 33.9%.
+- **Risk tiers:** cutoffs are sized to follow-up capacity (high ≥ 0.17, moderate ≥ 0.12; reasoning in `src/readmission/config.py`). The high tier flags ~6 per 100 discharges with a 22.7% observed readmission rate; high + moderate flag ~22 per 100 and catch 40% of readmissions. Low-tier patients (78%) readmit at 6.9%. A decision curve confirms the model beats following up with everyone or no one at both cutoffs.
+- **Race is not a model input.** It is kept only to audit performance by race group. Removing it cost ~0.002 test ROC-AUC (cross-validated AUC was unchanged) and did not change the gaps between race groups.
 - **Honest read:** an ROC-AUC of 0.65 is modest. This is consistent with published work on this dataset, which has no post-discharge, social, or vitals data. The model is useful for prioritizing a follow-up list, not as a standalone decision rule.
 
 Full metrics are written to `models/metrics.json`, with plots in `models/`: the reliability diagram (`reliability.png`), feature importance (`feature_importance.png`), and the decision curve (`decision_curve.png`).
