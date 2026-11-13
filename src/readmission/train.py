@@ -35,6 +35,7 @@ from sklearn.pipeline import Pipeline
 from xgboost import XGBClassifier
 
 from readmission import __version__
+from readmission.artifact import build_artifact
 from readmission.config import (
     CALIBRATION_METHOD,
     CALIBRATION_PLOT_PATH,
@@ -337,15 +338,16 @@ def main() -> None:
     print(format_importance(metrics["explainability"]))
 
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
-    artifact = {
-        "model": calibrated,
-        "model_type": best_model_name,
-        "model_version": __version__,
-        "trained_at": metrics["trained_at"],
-        "metrics": {
-            "test": metrics["test_calibrated"],
-        },
-    }
+    artifact = build_artifact(
+        calibrated,
+        model_type=best_model_name,
+        model_version=__version__,
+        trained_at=metrics["trained_at"],
+        calibration_method=CALIBRATION_METHOD,
+        risk_tier_thresholds=RISK_TIER_THRESHOLDS,
+        X_train=X_train,
+        test_metrics=metrics["test_calibrated"],
+    )
     joblib.dump(artifact, MODEL_PATH, compress=3)
     METRICS_PATH.write_text(json.dumps(metrics, indent=2))
     calibration_curve_plot(
