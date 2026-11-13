@@ -1,12 +1,14 @@
 """Train the model for readmission prediction.
 
 Design:
-1. 80/20 stratidied train/test split
+1. 80/20 stratified train/test split
 2. Both logistic regression and XGBoost models are compared with 5-fold stratified cross-validation on the
-   training set. The preprocessign ColumnTransformer lives inside the pipeline, so that the imputation/scaling/encoding
+   training set. The preprocessing ColumnTransformer lives inside the pipeline, so that the imputation/scaling/encoding
    is applied to each fold of the cross-validation, ensuring there is no leakage.
 3. The winning model family is then tuned with a randomized hyperparameter search (also 5-fold CV, train set only).
-4. The tuned model is refit on the training set, then calibrated with isotonic regression on the test set.
+4. The training set is split again (80/20, stratified) into a fit split and a calibration split. The tuned model is
+   refit on the fit split, then calibrated with isotonic regression on the disjoint calibration split. The test set
+   is used only for final scoring.
 5. Every headline score is reported next to two reference points: the no-skill floor and a no-ML incumbent rule.
 6. The calibrated pipeline and metadata is saved to models/model.joblib, all metrics to models/metrics.json, the
    reliability diagram to models/reliability.png, and every tuning trial to models/tuning_runs.jsonl.
