@@ -1,0 +1,40 @@
+name: CI
+
+# Run on every push to master and on every pull request targeting it.
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+# Least privilege: this workflow only needs to read the repo.
+permissions:
+  contents: read
+
+# If you push again while a run is still going, cancel the stale run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.1"
+          enable-cache: true
+
+      # --locked fails the build if uv.lock is out of date with pyproject.toml,
+      # so CI always tests exactly the dependency versions that were committed.
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Test
+        run: uv run pytest -q
