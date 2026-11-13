@@ -7,7 +7,7 @@ Design:
    is applied to each fold of the cross-validation, ensuring there is no leakage.
 3. The winning model family is then tuned with a randomized hyperparameter search (also 5-fold CV, train set only).
 4. The training set is split again (80/20, stratified) into a fit split and a calibration split. The tuned model is
-   refit on the fit split, then calibrated with isotonic regression on the disjoint calibration split. The test set
+   refit on the fit split, then calibrated (sigmoid / Platt scaling) on the disjoint calibration split. The test set
    is used only for final scoring.
 5. Every headline score is reported next to two reference points: the no-skill floor and a no-ML incumbent rule.
 6. The calibrated pipeline and metadata is saved to models/model.joblib, all metrics to models/metrics.json, the
@@ -36,6 +36,7 @@ from xgboost import XGBClassifier
 
 from readmission import __version__
 from readmission.config import (
+    CALIBRATION_METHOD,
     CALIBRATION_PLOT_PATH,
     CALIBRATION_SIZE,
     DECISION_CURVE_PLOT_PATH,
@@ -268,9 +269,9 @@ def main() -> None:
     best_pipeline.fit(X_fit, y_fit)
     uncalibrated_proba = best_pipeline.predict_proba(X_test)[:, 1]
 
-    print(f"Calibrating {best_model_name} with isotonic regression ...")
+    print(f"Calibrating {best_model_name} ({CALIBRATION_METHOD}) ...")
     calibrated = CalibratedClassifierCV(
-        FrozenEstimator(best_pipeline), method="isotonic"
+        FrozenEstimator(best_pipeline), method=CALIBRATION_METHOD
     )
     calibrated.fit(X_calib, y_calib)
     calibrated_proba = calibrated.predict_proba(X_test)[:, 1]
@@ -279,6 +280,7 @@ def main() -> None:
         "model_version": __version__,
         "trained_at": datetime.now(UTC).isoformat(),
         "selected_model": best_model_name,
+        "calibration_method": CALIBRATION_METHOD,
         "n_train": len(X_train),
         "n_test": len(X_test),
         "positive_rate": float(y.mean()),
@@ -296,6 +298,7 @@ def main() -> None:
         "calibration": {
             "ece_uncalibrated": expected_calibration_error(y_test, uncalibrated_proba),
             "ece_calibrated": expected_calibration_error(y_test, calibrated_proba),
+            "max_calibrated_probability": float(calibrated_proba.max()),
             "murphy_uncalibrated": murphy_decomposition(y_test, uncalibrated_proba),
             "murphy_calibrated": murphy_decomposition(y_test, calibrated_proba),
         },

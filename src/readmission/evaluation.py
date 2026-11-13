@@ -15,7 +15,12 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 
-from readmission.config import RISK_TIER_ORDER, RISK_TIER_THRESHOLDS, assign_risk_tier
+from readmission.config import (
+    CALIBRATION_METHOD,
+    RISK_TIER_ORDER,
+    RISK_TIER_THRESHOLDS,
+    assign_risk_tier,
+)
 
 matplotlib.use("Agg")
 
@@ -312,7 +317,7 @@ def calibration_curve_plot(
     curve_ax.plot([0, 1], [0, 1], "k--", label="Perfect Calibrated")
     for label, proba, color in (
         ("Uncalibrated", uncalibrated_proba, "#D03B3B"),
-        ("Calibrated (isotonic)", calibrated_proba, "#2A78D6"),
+        (f"Calibrated ({CALIBRATION_METHOD})", calibrated_proba, "#2A78D6"),
     ):
         observed, predicted = calibration_curve(
             y_true, proba, n_bins=n_bins, strategy="quantile"
@@ -420,6 +425,10 @@ def format_summary(metrics: dict) -> str:
             "Calibration error (ECE): "
             f"{metrics['calibration']['ece_uncalibrated']:.4f} -> "
             f"{metrics['calibration']['ece_calibrated']:.4f}"
+        ),
+        (
+            "Highest predicted risk: "
+            f"{metrics['calibration'].get('max_calibrated_probability', float('nan')):.1%}"
         ),
         "",
         f"{'top k%':>8}{'flagged':>12}{'precision':>12}{'recall':>12}{'lift':>8}",
