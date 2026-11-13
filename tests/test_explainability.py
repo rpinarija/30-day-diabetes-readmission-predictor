@@ -3,17 +3,22 @@ signal deliberately planted in synthetic data."""
 
 import numpy as np
 import pytest
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.dummy import DummyClassifier
+from sklearn.frozen import FrozenEstimator
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from xgboost import XGBClassifier
 
 from readmission.explainability import (
+    FEATURE_LABELS,
     contribution_importance,
+    explained_pipeline,
     feature_contributions,
     feature_importance_plot,
     permutation_importance_table,
     source_feature,
+    top_factors,
 )
 from readmission.preprocessing import (
     FEATURE_COLUMNS,
@@ -171,3 +176,58 @@ def test_plot_is_written(cohort, xgb_pipeline, tmp_path):
     path = tmp_path / "importance.png"
     feature_importance_plot(explainability, path)
     assert path.exists() and path.stat().st_size > 0
+
+
+# ---------------------------------------------------------------------------
+# Per-patient explanations (served by the API)
+# ---------------------------------------------------------------------------
+
+
+def calibrate(pipeline, X, y):
+    """Wrap a fitted pipeline the same way train.py does."""
+    return CalibratedClassifierCV(FrozenEstimator(pipeline), method="sigmoid").fit(X, y)
+
+
+class TestPerPatientExplanations:
+    def test_every_feature_has_a_plain_language_label(self):
+        assert set(FEATURE_LABELS) == set(FEATURE_COLUMNS)
+
+    def test_explained_pipeline_unwraps_the_calibrated_model(
+        self, cohort, xgb_pipeline
+    ):
+        X, y = cohort
+        assert explained_pipeline(calibrate(xgb_pipeline, X, y)) is xgb_pipeline
+
+    def test_logistic_regression_is_refused(self, cohort, logistic_pipeline):
+        """Its contributions are relative to the rows passed in; for one patient that
+        is the patient itself, so every contribution would silently be zero."""
+        X, y = cohort
+        with pytest.raises(TypeError, match="XGBoost"):
+            explained_pipeline(calibrate(logistic_pipeline, X, y))
+
+    @pytest.mark.parametrize(
+        ("inpatient", "effect"), [(5, "raises risk"), (0, "lowers risk")]
+    )
+    def test_planted_signal_is_the_top_factor(
+        self, cohort, xgb_pipeline, inpatient, effect
+    ):
+        X, _ = cohort
+        patient = X[X["number_inpatient"] == inpatient].iloc[[0]]
+        factors = top_factors(xgb_pipeline, patient)
+        assert factors[0]["feature"] == "number_inpatient"
+        assert factors[0]["effect"] == effect
+        assert factors[0]["value"] == inpatient
+
+    def test_factors_are_ranked_and_signed_consistently(self, cohort, xgb_pipeline):
+        X, _ = cohort
+        factors = top_factors(xgb_pipeline, X.iloc[[0]], n=5)
+        sizes = [abs(f["log_odds_contribution"]) for f in factors]
+        assert len(factors) == 5
+        assert sizes == sorted(sizes, reverse=True)
+        for f in factors:
+            assert (f["log_odds_contribution"] > 0) == (f["effect"] == "raises risk")
+
+    def test_explains_one_patient_at_a_time(self, cohort, xgb_pipeline):
+        X, _ = cohort
+        with pytest.raises(ValueError):
+            top_factors(xgb_pipeline, X.iloc[:2])
