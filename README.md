@@ -58,7 +58,7 @@ docker run -p 8000:8000 -v "$(pwd)/models:/models" -e READMISSION_MODEL_PATH=/mo
 ## Data
 
 - **Source:** [Diabetes 130-US Hospitals, 1999–2008](https://archive.ics.uci.edu/dataset/296/diabetes+130-us+hospitals+for+years+1999-2008) (UCI ML Repository), described in Strack et al. (2014), *"Impact of HbA1c Measurement on Hospital Readmission Rates"*, BioMed Research International.
-- **Obtaining it:** not committed to the repo. Run `scripts/download_data.py`, which fetches and unzips the official UCI archive into `data/raw/` (`diabetic_data.csv`, `IDS_mapping.csv`). No auth or VPN required since it's a public dataset.
+- **Obtaining it:** not committed to the repo. Run `scripts/download_data.py`, which fetches and unzips the official UCI archive into `data/raw/` (`diabetic_data.csv`, `IDS_mapping.csv`) and verifies each file against a pinned SHA-256 fingerprint, so a changed upstream file stops the pipeline instead of silently changing the training data. No auth or VPN required since it's a public dataset.
 - **Snapshot:** The UCI dataset has not been updated since 2014, so this is stable. 101,766 encounters across 130 hospitals.
 - **PII/access:** Dataset is for public release by the original authors; no additional handling needed on our end.
 - **Schema:** 50 raw columns (identifiers, demographics, admission metadata as coded integers, utilization counts, 3 ICD-9 diagnosis fields, 2 lab results, 23 medication columns, the `readmitted` label). Full column-by-column treatment is in the [EDA notebook](notebooks/01_eda.ipynb).
@@ -79,7 +79,8 @@ docker run -p 8000:8000 -v "$(pwd)/models:/models" -e READMISSION_MODEL_PATH=/mo
 ├── notebooks/
 │   ├── 01_eda.ipynb      # EDA + decision log - reasoning behind every decision
 ├── scripts/
-│   ├── download_data.py  # Download UCI CSV
+│   ├── download_data.py  # Download the UCI data and verify its checksums
+│   ├── smoke_test.py     # End-to-end check of a running API (CI and deployments)
 ├── src/readmission/
 │   ├── config.py         # paths, constants, risk-tier thresholds
 │   ├── preprocessing.py  # cleaning, feature engineering, sklearn ColumnTransformer
@@ -137,7 +138,7 @@ Full metrics are written to `models/metrics.json`, with plots in `models/`: the 
 ## Reproducibility
 
 - Dependencies are pinned via `uv.lock`; `uv sync` reproduces the exact environment. Runtime dependencies are kept separate from dev tools (pytest, ruff, Jupyter), so `uv sync --no-dev` installs only what the code needs to run.
-- CI (GitHub Actions) runs lint and the test suite on every push and pull request.
+- CI (GitHub Actions) runs lint and the test suite on every push and pull request, then trains the model from the checksum-verified dataset, runs the quality gate, builds the Docker image, and smoke-tests it. Each run's metrics and plots are kept as workflow artifacts.
 - `RANDOM_STATE = 42` is centralized in `src/readmission/config.py` and used for every split, CV fold, search, and model seed.
 - Each training run saves the calibrated model with its version and timestamp (`models/model.joblib`), all metrics (`models/metrics.json`), and appends every tuning trial to `models/tuning_runs.jsonl`. There is no external experiment tracker yet.
 
@@ -150,6 +151,9 @@ The API runs locally or as a Docker container (see [Quickstart](#quickstart)); i
 - **Strict input contract:** unknown fields, ICD-10 codes, stays over 14 days, patients under 18, and hospice discharges are rejected with a 422 explaining why (all outside the training data or the model card's scope).
 - **Fail fast:** the service refuses to start if the model file is missing or was trained on different features than the code produces.
 - **Model path:** `models/model.joblib` by default; override with the `READMISSION_MODEL_PATH` environment variable.
+- **Release pipeline:** every merge to `master` trains the model in CI, then publishes the image to GitHub Container Registry (`ghcr.io/rpinarija/30-day-diabetes-readmission-predictor`, tagged `latest` and `sha-<commit>`) only if two checks pass:
+  - **Quality gate** (`src/readmission/quality_gate.py`): ROC-AUC, lift, and calibration floors; must beat the incumbent rule; tier volumes inside the model card's monitoring ranges; subgroup calibration gap within limits. A degraded model is never published.
+  - **Smoke test** (`scripts/smoke_test.py`): the built container must answer real requests correctly.
 - **Container image:** the model is baked in, so one image = one exact code + model version, and rolling back means running the previous image. The image is multi-stage (build tools never reach the final image), installs production dependencies only, runs as a non-root user, and has a Docker health check on `/health`. An allowlist `.dockerignore` keeps the raw dataset and everything else out of the build.
 
 ## Housekeeping
